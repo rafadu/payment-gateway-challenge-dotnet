@@ -5,13 +5,14 @@ using PaymentGateway.Api.Services;
 
 namespace PaymentGateway.Api.Tests.Services;
 
-public class PaymentsRepositoryTests
+public class InMemoryPaymentsRepositoryTests
 {
-    private readonly PaymentsRepository _repository = new();
+    private readonly InMemoryPaymentsRepository _repository = new();
 
     private static Payment APayment(Guid id) => new()
     {
         Id = id,
+        MerchantId = "merchant-42",
         Status = PaymentStatus.Authorized,
         CardNumberLastFour = "1111",
         ExpiryMonth = 12,
@@ -21,45 +22,45 @@ public class PaymentsRepositoryTests
     };
 
     [Fact]
-    public void Get_returns_a_previously_added_payment()
+    public async Task GetAsync_returns_a_previously_added_payment()
     {
         var payment = APayment(Guid.NewGuid());
-        _repository.Add(payment);
+        await _repository.AddAsync(payment);
 
-        _repository.Get(payment.Id).Should().BeSameAs(payment);
+        (await _repository.GetAsync(payment.Id)).Should().BeSameAs(payment);
     }
 
     [Fact]
-    public void Get_returns_null_for_an_unknown_id()
+    public async Task GetAsync_returns_null_for_an_unknown_id()
     {
-        _repository.Add(APayment(Guid.NewGuid()));
+        await _repository.AddAsync(APayment(Guid.NewGuid()));
 
-        _repository.Get(Guid.NewGuid()).Should().BeNull();
+        (await _repository.GetAsync(Guid.NewGuid())).Should().BeNull();
     }
 
     [Fact]
-    public void Add_with_a_duplicate_id_replaces_the_existing_payment()
+    public async Task AddAsync_with_a_duplicate_id_replaces_the_existing_payment()
     {
         var id = Guid.NewGuid();
         var original = APayment(id);
         var replacement = APayment(id);
 
-        _repository.Add(original);
-        _repository.Add(replacement);
+        await _repository.AddAsync(original);
+        await _repository.AddAsync(replacement);
 
-        _repository.Get(id).Should().BeSameAs(replacement);
+        (await _repository.GetAsync(id)).Should().BeSameAs(replacement);
     }
 
     [Fact]
-    public void Add_keeps_distinct_payments_retrievable_by_their_own_id()
+    public async Task AddAsync_keeps_distinct_payments_retrievable_by_their_own_id()
     {
         var first = APayment(Guid.NewGuid());
         var second = APayment(Guid.NewGuid());
 
-        _repository.Add(first);
-        _repository.Add(second);
+        await _repository.AddAsync(first);
+        await _repository.AddAsync(second);
 
-        _repository.Get(first.Id).Should().BeSameAs(first);
-        _repository.Get(second.Id).Should().BeSameAs(second);
+        (await _repository.GetAsync(first.Id)).Should().BeSameAs(first);
+        (await _repository.GetAsync(second.Id)).Should().BeSameAs(second);
     }
 }

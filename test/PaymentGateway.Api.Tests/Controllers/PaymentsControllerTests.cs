@@ -117,7 +117,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task GET_returns_401_when_no_token_is_provided()
     {
-        var (_, client) = FactoryWith(new PaymentsRepository());
+        var (_, client) = FactoryWith(new InMemoryPaymentsRepository());
 
         var response = await client.GetAsync($"/api/payments/{Guid.NewGuid()}");
 
@@ -127,7 +127,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task GET_returns_401_when_the_token_is_malformed()
     {
-        var (_, client) = FactoryWith(new PaymentsRepository());
+        var (_, client) = FactoryWith(new InMemoryPaymentsRepository());
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "not-a-jwt");
 
         var response = await client.GetAsync($"/api/payments/{Guid.NewGuid()}");
@@ -138,7 +138,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task GET_returns_401_when_the_token_is_signed_with_the_wrong_key()
     {
-        var (_, client) = FactoryWith(new PaymentsRepository());
+        var (_, client) = FactoryWith(new InMemoryPaymentsRepository());
         var forged = TestJwt.Mint(MerchantA, WrongSigningKey);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", forged);
 
@@ -150,7 +150,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task GET_returns_401_when_the_token_has_expired()
     {
-        var (factory, client) = FactoryWith(new PaymentsRepository());
+        var (factory, client) = FactoryWith(new InMemoryPaymentsRepository());
         Authorize(factory, client, MerchantA, lifetime: TimeSpan.FromMinutes(-1));
 
         var response = await client.GetAsync($"/api/payments/{Guid.NewGuid()}");
@@ -161,7 +161,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task POST_returns_401_when_no_token_is_provided()
     {
-        var (_, client) = FactoryWith(new PaymentsRepository());
+        var (_, client) = FactoryWith(new InMemoryPaymentsRepository());
 
         var response = await client.PostAsJsonAsync("/api/payments", AValidRequest());
 
@@ -173,7 +173,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task POST_returns_400_when_the_request_fails_validation()
     {
-        var (factory, client) = FactoryWith(new PaymentsRepository());
+        var (factory, client) = FactoryWith(new InMemoryPaymentsRepository());
         Authorize(factory, client, MerchantA);
 
         var response = await client.PostAsJsonAsync("/api/payments", new PostPaymentRequest
@@ -192,7 +192,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task POST_returns_201_with_the_payment_when_the_request_is_authorized_and_valid()
     {
-        var (factory, client, _) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+        var (factory, client, _) = FactoryWithBankStub(new InMemoryPaymentsRepository(), bankAuthorized: true);
         Authorize(factory, client, MerchantA);
 
         var response = await client.PostAsJsonAsync("/api/payments", AValidRequest());
@@ -214,7 +214,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task POST_returns_201_with_a_declined_payment_when_the_bank_declines()
     {
-        var (factory, client, _) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: false);
+        var (factory, client, _) = FactoryWithBankStub(new InMemoryPaymentsRepository(), bankAuthorized: false);
         Authorize(factory, client, MerchantA);
 
         var response = await client.PostAsJsonAsync("/api/payments", AValidRequest());
@@ -230,7 +230,7 @@ public class PaymentsControllerTests
         // End-to-end: the POST response carries a payment id; GETting that id as the same merchant
         // returns 200. Cross-merchant 404 (above) is the negative half of the same ownership
         // property — together they prove MerchantId is taken from the JWT sub, not the body.
-        var repository = new PaymentsRepository();
+        var repository = new InMemoryPaymentsRepository();
         var (factory, client, _) = FactoryWithBankStub(repository, bankAuthorized: true);
         Authorize(factory, client, MerchantA);
 
@@ -247,7 +247,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task GET_returns_200_with_the_payment_when_the_caller_owns_it()
     {
-        var repository = new PaymentsRepository();
+        var repository = new InMemoryPaymentsRepository();
         var payment = new Payment
         {
             Id = Guid.NewGuid(),
@@ -259,7 +259,7 @@ public class PaymentsControllerTests
             Currency = "GBP",
             Amount = 100
         };
-        repository.Add(payment);
+        await repository.AddAsync(payment);
         var (factory, client) = FactoryWith(repository);
         Authorize(factory, client, MerchantA);
 
@@ -282,7 +282,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task GET_returns_404_when_the_payment_does_not_exist()
     {
-        var (factory, client) = FactoryWith(new PaymentsRepository());
+        var (factory, client) = FactoryWith(new InMemoryPaymentsRepository());
         Authorize(factory, client, MerchantA);
 
         var response = await client.GetAsync($"/api/payments/{Guid.NewGuid()}");
@@ -295,7 +295,7 @@ public class PaymentsControllerTests
     {
         // Repository has a payment owned by MerchantB; MerchantA asks for it. ADR-0010 says 404
         // (not 403) so the existence of another merchant's payment is never revealed.
-        var repository = new PaymentsRepository();
+        var repository = new InMemoryPaymentsRepository();
         var bobsPayment = new Payment
         {
             Id = Guid.NewGuid(),
@@ -307,7 +307,7 @@ public class PaymentsControllerTests
             Currency = "GBP",
             Amount = 100
         };
-        repository.Add(bobsPayment);
+        await repository.AddAsync(bobsPayment);
         var (factory, client) = FactoryWith(repository);
         Authorize(factory, client, MerchantA);
 
@@ -334,7 +334,7 @@ public class PaymentsControllerTests
         // Absent header → opt-out: no claim, no caching. Two POSTs without a key produce two
         // distinct payments with two distinct bank calls (regression guard for the "no behavior
         // change for callers who don't opt in" promise in ADR-0003).
-        var (factory, client, bankStub) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+        var (factory, client, bankStub) = FactoryWithBankStub(new InMemoryPaymentsRepository(), bankAuthorized: true);
         Authorize(factory, client, MerchantA);
 
         var first = await client.PostAsJsonAsync("/api/payments", AValidRequest());
@@ -351,7 +351,7 @@ public class PaymentsControllerTests
     public async Task POST_with_a_new_Idempotency_Key_caches_the_response_and_a_retry_replays_it_without_calling_the_bank_again()
     {
         var key = "merchant-attempt-1";
-        var (factory, client, bankStub) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+        var (factory, client, bankStub) = FactoryWithBankStub(new InMemoryPaymentsRepository(), bankAuthorized: true);
         Authorize(factory, client, MerchantA);
         client.DefaultRequestHeaders.Add(IdempotencyResourceFilter.HeaderName, key);
 
@@ -373,7 +373,7 @@ public class PaymentsControllerTests
     public async Task POST_with_an_existing_Idempotency_Key_but_a_different_body_returns_422_and_does_not_call_the_bank()
     {
         var key = "merchant-attempt-1";
-        var (factory, client, bankStub) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+        var (factory, client, bankStub) = FactoryWithBankStub(new InMemoryPaymentsRepository(), bankAuthorized: true);
         Authorize(factory, client, MerchantA);
         client.DefaultRequestHeaders.Add(IdempotencyResourceFilter.HeaderName, key);
 
@@ -395,7 +395,7 @@ public class PaymentsControllerTests
     public async Task POST_with_an_in_progress_Idempotency_Key_returns_409_and_does_not_call_the_bank()
     {
         var key = "in-flight-attempt";
-        var (factory, client, bankStub) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+        var (factory, client, bankStub) = FactoryWithBankStub(new InMemoryPaymentsRepository(), bankAuthorized: true);
 
         // Send the body as raw bytes so the test controls the exact wire format — the filter
         // hashes the raw POST body, so the test's hash has to match the bytes the client sends.
@@ -422,7 +422,7 @@ public class PaymentsControllerTests
     public async Task POST_releases_the_claim_on_503_so_a_subsequent_request_with_the_same_key_proceeds_normally()
     {
         var key = "transient-failure";
-        var repository = new PaymentsRepository();
+        var repository = new InMemoryPaymentsRepository();
 
         // Bank throws on every call → controller returns 503. Filter must release the claim so a
         // merchant retry (after the bank recovers) gets through to the bank again, instead of

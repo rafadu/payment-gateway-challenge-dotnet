@@ -177,6 +177,27 @@ requests), `method`, `path`, `statusCode`, `outcome` (`Authorized`/`Declined`/
 `InternalError`), `durationMs`, and `requestSummary` (a nested document with the masked card
 last-four, currency, amount, expiry — **never** the full PAN or the CVV).
 
+### Inspecting the payments collection
+
+Every successful payment (or `Declined` from a bank-adjudicated response) is persisted to the
+MongoDB `payments` collection in the `payment_gateway` database. The `payments` collection is
+written by `MongoPaymentsRepository`, which replaced the previous in-memory
+`ConcurrentDictionary` so payments survive process restarts and are shared across instances.
+
+```bash
+# Last 10 payments, newest first
+docker exec payment_gateway_mongo mongosh payment_gateway --quiet \
+  --eval 'db.payments.find().sort({_id:-1}).limit(10).toArray()'
+
+# All payments for one merchant
+docker exec payment_gateway_mongo mongosh payment_gateway --quiet \
+  --eval 'db.payments.find({merchantId: "11111111-1111-1111-1111-111111111111"}).sort({_id:-1}).toArray()'
+```
+
+Each document has: `_id` (the payment GUID as a string), `merchantId`, `status` (`Authorized`/
+`Declined`), `cardNumberLastFour`, `expiryMonth`, `expiryYear`, `currency`, `amount`, and
+`createdAt`. The full PAN and CVV are never stored.
+
 ### Running the test suite
 
 Two test commands, with different scope:

@@ -23,7 +23,7 @@ IPaymentsService (orchestration)
    │  maps request → bank request, calls the bank, maps the result,
    │  persists only Authorized/Declined outcomes, tagged with the caller's MerchantId
    ├──────────────► IAcquiringBankClient (typed HttpClient, bounded timeout)
-   └──────────────► IPaymentsRepository (in-memory, ConcurrentDictionary)
+   └──────────────► IPaymentsRepository (MongoDB; in-memory fake for tests)
 ```
 
 Validation (FluentValidation) runs in front of the controller action via ASP.NET Core's standard
@@ -134,9 +134,12 @@ not close this deeper gap.
 
 ## Concurrency
 
-- `IPaymentsRepository` is backed by `ConcurrentDictionary<Guid, Payment>`, not the original
-  scaffold's plain `List<T>`, since ASP.NET Core serves requests concurrently by default and a
-  `List<T>.Add` is not thread-safe.
+- `IPaymentsRepository`'s production impl is `MongoPaymentsRepository` (`ReplaceOneAsync` with
+  `IsUpsert = true` for idempotent writes; `Find().FirstOrDefaultAsync` for reads). The Mongo
+  driver owns the connection pool and the operations are thread-safe. The in-memory
+  `InMemoryPaymentsRepository` exists only as a unit-test fixture; it's
+  `ConcurrentDictionary<Guid, Payment>`-backed (the scaffold's plain `List<T>` was not
+  thread-safe — see Stage 2's history).
 - The idempotency store (ADR-0003) uses the same `ConcurrentDictionary`-based approach, with
   `TryAdd` used to atomically claim a key and avoid a check-then-act race between two concurrent
   requests carrying the same key.

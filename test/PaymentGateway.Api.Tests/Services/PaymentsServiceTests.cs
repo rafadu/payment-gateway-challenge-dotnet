@@ -42,12 +42,12 @@ public class PaymentsServiceTests
     {
         BankResponds(authorized: true);
         Payment? persisted = null;
-        _repository.When(r => r.Add(Arg.Any<Payment>())).Do(ci => persisted = ci.Arg<Payment>());
+        _repository.When(r => r.AddAsync(Arg.Any<Payment>(), Arg.Any<CancellationToken>())).Do(ci => persisted = ci.Arg<Payment>());
 
         var result = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
 
         result.Status.Should().Be(PaymentStatus.Authorized);
-        _repository.Received(1).Add(Arg.Any<Payment>());
+        _repository.Received(1).AddAsync(Arg.Any<Payment>(), Arg.Any<CancellationToken>());
         persisted.Should().BeSameAs(result);
     }
 
@@ -56,7 +56,7 @@ public class PaymentsServiceTests
     {
         BankResponds(authorized: false);
         Payment? persisted = null;
-        _repository.When(r => r.Add(Arg.Any<Payment>())).Do(ci => persisted = ci.Arg<Payment>());
+        _repository.When(r => r.AddAsync(Arg.Any<Payment>(), Arg.Any<CancellationToken>())).Do(ci => persisted = ci.Arg<Payment>());
 
         var result = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
 
@@ -105,7 +105,7 @@ public class PaymentsServiceTests
     {
         BankResponds(authorized: true);
         Payment? persisted = null;
-        _repository.When(r => r.Add(Arg.Any<Payment>())).Do(ci => persisted = ci.Arg<Payment>());
+        _repository.When(r => r.AddAsync(Arg.Any<Payment>(), Arg.Any<CancellationToken>())).Do(ci => persisted = ci.Arg<Payment>());
 
         var result = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
 
@@ -122,7 +122,7 @@ public class PaymentsServiceTests
     {
         BankResponds(authorized: true);
         Payment? persisted = null;
-        _repository.When(r => r.Add(Arg.Any<Payment>())).Do(ci => persisted = ci.Arg<Payment>());
+        _repository.When(r => r.AddAsync(Arg.Any<Payment>(), Arg.Any<CancellationToken>())).Do(ci => persisted = ci.Arg<Payment>());
 
         var result = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
 
@@ -155,7 +155,7 @@ public class PaymentsServiceTests
         // The exact instance must propagate untouched — not swallowed or rewrapped.
         thrown.Which.Should().BeSameAs(failure);
 
-        _repository.DidNotReceive().Add(Arg.Any<Payment>());
+        _repository.DidNotReceive().AddAsync(Arg.Any<Payment>(), Arg.Any<CancellationToken>());
     }
 
     public static TheoryData<Exception> BankFailures() =>

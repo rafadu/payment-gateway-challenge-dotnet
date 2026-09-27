@@ -49,7 +49,7 @@ public sealed class PaymentsService : IPaymentsService
             Amount = request.Amount
         };
 
-        _repository.Add(payment);
+        await _repository.AddAsync(payment, cancellationToken);
 
         return payment;
     }

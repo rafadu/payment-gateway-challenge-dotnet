@@ -85,9 +85,9 @@ public class PaymentsController : ControllerBase
     }
 
     [HttpGet("{id:guid}")]
-    public ActionResult<PaymentResponse> GetPayment(Guid id)
+    public async Task<ActionResult<PaymentResponse>> GetPayment(Guid id, CancellationToken cancellationToken)
     {
-        var payment = _paymentsRepository.Get(id);
+        var payment = await _paymentsRepository.GetAsync(id, cancellationToken);
 
         // 404 (not 403) when the caller isn't the owner: existence of another merchant's payment
         // must never be revealed (ADR-0010).

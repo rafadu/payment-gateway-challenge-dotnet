@@ -28,6 +28,10 @@ public class AuditMiddlewareTests
             {
                 services.RemoveAll<IAuditStore>();
                 services.AddSingleton<IAuditStore>(store);
+                // Payments repository needs an in-memory fake too — the production
+                // MongoPaymentsRepository would otherwise hang on a connection that isn't running.
+                services.RemoveAll<IPaymentsRepository>();
+                services.AddSingleton<IPaymentsRepository>(new InMemoryPaymentsRepository());
             }));
 
     private static void Authorize(HttpClient client, string merchantId)
@@ -57,6 +61,10 @@ public class AuditMiddlewareTests
                 services.AddSingleton<IAuditStore>(store);
                 services.RemoveAll<IAcquiringBankClient>();
                 services.AddSingleton(fakeBank);
+                // Payments repository needs an in-memory fake too — the production
+                // MongoPaymentsRepository would otherwise hang on a connection that isn't running.
+                services.RemoveAll<IPaymentsRepository>();
+                services.AddSingleton<IPaymentsRepository>(new InMemoryPaymentsRepository());
             });
         });
         var client = factory.CreateClient();
@@ -107,6 +115,10 @@ public class AuditMiddlewareTests
                 services.AddSingleton<IAuditStore>(store);
                 services.RemoveAll<IAcquiringBankClient>();
                 services.AddSingleton(fakeBank);
+                // Payments repository needs an in-memory fake too — the production
+                // MongoPaymentsRepository would otherwise hang on a connection that isn't running.
+                services.RemoveAll<IPaymentsRepository>();
+                services.AddSingleton<IPaymentsRepository>(new InMemoryPaymentsRepository());
             });
         });
         var client = factory.CreateClient();
@@ -182,6 +194,10 @@ public class AuditMiddlewareTests
                 services.AddSingleton<IAuditStore>(store);
                 services.RemoveAll<IAcquiringBankClient>();
                 services.AddSingleton(fakeBank);
+                // Payments repository needs an in-memory fake too — the production
+                // MongoPaymentsRepository would otherwise hang on a connection that isn't running.
+                services.RemoveAll<IPaymentsRepository>();
+                services.AddSingleton<IPaymentsRepository>(new InMemoryPaymentsRepository());
             });
         });
         var client = factory.CreateClient();

@@ -43,6 +43,10 @@ public class AuthControllerTests
                 // no Mongo in unit tests.
                 services.RemoveAll<IAuditStore>();
                 services.AddSingleton<IAuditStore>(new InMemoryAuditStore());
+                // Payments repository needs an in-memory fake too — the production
+                // MongoPaymentsRepository would otherwise hang on a connection that isn't running.
+                services.RemoveAll<IPaymentsRepository>();
+                services.AddSingleton<IPaymentsRepository>(new InMemoryPaymentsRepository());
             }));
 
     private static HttpClient ClientWith(ICredentialStore store) => FactoryWith(store).CreateClient();

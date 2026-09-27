@@ -11,7 +11,7 @@ builder.Services.AddControllers(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddSingleton<IPaymentsRepository, PaymentsRepository>();
+builder.Services.AddSingleton<IPaymentsRepository, MongoPaymentsRepository>();
 builder.Services.AddSingleton<IPaymentsService, PaymentsService>();
 
 // In-memory idempotency-key store (ADR-0003). Singleton — it owns the dictionary of claims, no
