@@ -1,20 +1,20 @@
-using PaymentGateway.Api.Models.Responses;
+using System.Collections.Concurrent;
+
+using PaymentGateway.Api.Models;
 
 namespace PaymentGateway.Api.Services;
 
-// NOTE: still the scaffold's List<T>-backed shape, only retyped to PaymentResponse to keep the
-// build green. It is replaced by a thread-safe IPaymentsRepository in stage 2.
-public class PaymentsRepository
+/// <summary>
+/// In-memory <see cref="IPaymentsRepository"/> backed by a <see cref="ConcurrentDictionary{TKey,TValue}"/>,
+/// so it is safe under the concurrent request handling ASP.NET Core performs by default (the
+/// scaffold's plain <c>List&lt;T&gt;</c> was not). Registered as a singleton, so all requests share
+/// one store for the lifetime of the process.
+/// </summary>
+public class PaymentsRepository : IPaymentsRepository
 {
-    public List<PaymentResponse> Payments = new();
+    private readonly ConcurrentDictionary<Guid, Payment> _payments = new();
 
-    public void Add(PaymentResponse payment)
-    {
-        Payments.Add(payment);
-    }
+    public void Add(Payment payment) => _payments[payment.Id] = payment;
 
-    public PaymentResponse? Get(Guid id)
-    {
-        return Payments.FirstOrDefault(p => p.Id == id);
-    }
+    public Payment? Get(Guid id) => _payments.TryGetValue(id, out var payment) ? payment : null;
 }

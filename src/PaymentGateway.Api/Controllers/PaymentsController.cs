@@ -1,19 +1,20 @@
 using Microsoft.AspNetCore.Mvc;
 
+using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Responses;
 using PaymentGateway.Api.Services;
 
 namespace PaymentGateway.Api.Controllers;
 
-// NOTE: still the scaffold's GET-only stub, retyped to PaymentResponse and given a correct
-// 404-on-missing so the suite stays green. The real, auth-aware controller is built in stage 7.
+// NOTE: still the scaffold's GET-only stub, now reading through IPaymentsRepository and mapping the
+// stored Payment to a PaymentResponse. The real, auth-aware controller is built in stage 7.
 [Route("api/[controller]")]
 [ApiController]
 public class PaymentsController : Controller
 {
-    private readonly PaymentsRepository _paymentsRepository;
+    private readonly IPaymentsRepository _paymentsRepository;
 
-    public PaymentsController(PaymentsRepository paymentsRepository)
+    public PaymentsController(IPaymentsRepository paymentsRepository)
     {
         _paymentsRepository = paymentsRepository;
     }
@@ -28,6 +29,17 @@ public class PaymentsController : Controller
             return NotFound();
         }
 
-        return Ok(payment);
+        return Ok(ToResponse(payment));
     }
+
+    private static PaymentResponse ToResponse(Payment payment) => new()
+    {
+        Id = payment.Id,
+        Status = payment.Status,
+        CardNumberLastFour = payment.CardNumberLastFour,
+        ExpiryMonth = payment.ExpiryMonth,
+        ExpiryYear = payment.ExpiryYear,
+        Currency = payment.Currency,
+        Amount = payment.Amount
+    };
 }
