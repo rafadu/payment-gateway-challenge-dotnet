@@ -19,9 +19,6 @@ namespace PaymentGateway.Api.Middleware;
 /// </summary>
 public sealed class AuditMiddleware
 {
-    /// <summary>HttpContext.Items key controllers use to override the auto-derived outcome label.</summary>
-    public const string OutcomeItemKey = "Audit.Outcome";
-
     private readonly RequestDelegate _next;
     private readonly IAuditStore _store;
 
@@ -119,7 +116,7 @@ public sealed class AuditMiddleware
         // The producer (controller / service) can override the outcome via HttpContext.Items. This
         // is how the controller reports Authorized vs Declined — both are 201s, so the status
         // code alone can't distinguish them.
-        if (httpContext.Items.TryGetValue(OutcomeItemKey, out var raw) && raw is string overridden)
+        if (httpContext.Items.TryGetValue(AuditConventions.OutcomeItemKey, out var raw) && raw is string overridden)
         {
             return overridden;
         }

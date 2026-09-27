@@ -188,6 +188,11 @@ hardcoded, so the "no more than 3 currency codes" constraint and the resiliency 
   `/api/auth/token` → bearer-token → `/api/payments` flow against real Mongo-backed credentials,
   rather than a mocked `HttpClient`/database. These are tagged so they can be distinguished from
   the always-run unit/component suite, and require both containers to be running first.
+- **Architecture tests** (ADR-0008): NetArchTest-based rules that enforce the layered structure as
+  build-failing invariants — dependency direction between Core/Ports/Adapters/Web, controllers
+  depending on ports not concrete adapters, interface placement, and a PCI safety net that keeps
+  raw card fields (`CardNumber`/`Cvv`) off every type except the merchant-request and bank-wire
+  DTOs. Run in the normal `dotnet test` pass; no infrastructure needed.
 
 ## Explicitly out of scope
 

@@ -47,3 +47,29 @@ pass, so a violating PR fails CI like any other test failure:
 - Soak testing under k6 is specifically how the unbounded-growth risk in the in-memory idempotency
   store (ADR-0003) and repository would actually be observed, rather than reasoned about
   abstractly — reinforcing why those stores need a TTL/centralized backing before real load.
+
+## Update — architecture tests implemented (performance tests still out of scope)
+
+The **architecture-test** half of this ADR is now built (`test/.../Architecture/ArchitectureTests.cs`,
+run in the standard `dotnet test` pass). Two deviations from the Decision text, both consequences of
+choices made after this ADR was written:
+
+- **Tool: NetArchTest.eNhancedEdition, not ArchUnitNET.** A lighter fluent API that was sufficient
+  for this rule set; the choice is behind the test project only and can be swapped without affecting
+  production code.
+- **Rules target the actual single-project namespaces, not `Domain`/`Application`/`Infrastructure`
+  modules.** That Clean-Architecture split was deliberately rejected for this submission (see the
+  implementation plan and ADR-0006), so the layering rules are expressed over the real structure:
+  Core (`Models`/`Exceptions`) ← Ports (`Abstractions`) / Instrumentation (`Metrics`) ← Adapters
+  (`Services`/`Persistence`/`Clients`/`Validation`) and Web (`Controllers`/`Middleware`/`Filters`),
+  with `Configuration`/`Program` as the composition root. Rules enforce dependency direction,
+  "controllers depend on ports not concrete adapters", interface placement, and that no rule is
+  vacuous (a populated-namespace guard plus a positive dependency assertion give the suite teeth).
+- The **PCI card-field safety net** is implemented as a reflection test (NetArchTest works at type,
+  not property, level): a property named `CardNumber`/`Cvv`/`Pan` may exist only on the two
+  designated raw-card DTOs — `PostPaymentRequest` (merchant input) and `BankPaymentRequest` (bank
+  wire) — never on a domain model, response, audit record, or anything persisted. The ADR's original
+  "single designated DTO" wording is refined to two, since the bank wire contract legitimately also
+  carries the full PAN/CVV. `CardNumberLastFour` is deliberately allowed.
+
+**Performance tests (BenchmarkDotNet + k6) remain out of scope** — documented here, not built.

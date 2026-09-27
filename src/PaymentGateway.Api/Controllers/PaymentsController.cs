@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Metrics;
-using PaymentGateway.Api.Middleware;
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Models.Responses;
@@ -71,7 +70,7 @@ public class PaymentsController : ControllerBase
         {
             var payment = await _paymentsService.ProcessPaymentAsync(request, merchantId, cancellationToken);
             // The audit filter reads this to distinguish Authorized vs Declined (both are 201s).
-            HttpContext.Items[AuditMiddleware.OutcomeItemKey] = payment.Status.ToString();
+            HttpContext.Items[AuditConventions.OutcomeItemKey] = payment.Status.ToString();
             return CreatedAtAction(nameof(GetPayment), new { id = payment.Id }, ToResponse(payment));
         }
         catch (BankUnavailableException)
