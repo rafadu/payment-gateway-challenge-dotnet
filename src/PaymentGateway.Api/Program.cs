@@ -9,7 +9,12 @@ builder.Services.AddControllers(options =>
     options.Filters.AddService<IdempotencyResourceFilter>());
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+// Swagger is a Development affordance; docker-compose (production) flips `Swagger__Enabled`
+// to false via the environment so the containerised API doesn't expose the schema browser.
+if (builder.Configuration.GetValue<bool>("Swagger:Enabled", true))
+{
+    builder.Services.AddSwaggerGen();
+}
 
 builder.Services.AddSingleton<IPaymentsRepository, MongoPaymentsRepository>();
 builder.Services.AddSingleton<IPaymentsService, PaymentsService>();
@@ -48,8 +53,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
-app.UseHttpsRedirection();
 
 // Audit trail (ADR-0004) — middleware-level so it captures 401s emitted by UseAuthorization.
 // Placed before UseAuthorization/MapControllers so the middleware sees requests rejected at

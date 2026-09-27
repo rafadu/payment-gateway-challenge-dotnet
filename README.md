@@ -26,16 +26,24 @@ end-to-end, against the seeded demo merchant.
 
 ### Prerequisites
 
-- .NET 10 SDK (`dotnet --version` should report `10.x`).
-- Docker + Docker Compose, to run the bank simulator and MongoDB together.
+- Docker + Docker Compose. The API now ships as a Dockerfile, so the SDK isn't required to run
+  the gateway — only to rebuild the image or to run the test suite locally.
+  (`dotnet --version` should report `10.x` if you intend to run the unit tests too.)
 
-### 1. Start the supporting services
+### 1. Start everything with one command
 
 ```bash
-docker-compose up -d bank_simulator mongo
+docker compose up --build
 ```
 
-The Mongo container seeds a single merchant on first startup
+`docker compose up --build` brings up three services: `bank_simulator` (Mountebank on
+`localhost:8080`), `mongo` (the gateway database on `localhost:27017`), and `api` (this
+service, listening on `localhost:5067`). The `api` service `depends_on` the other two — the
+container order is bank_simulator and mongo first, then api — but `MongoClient` and the typed
+`HttpClient` both defer their first I/O until a request lands, so the API container starts
+even if its dependencies are still booting.
+
+The first time you start, Mongo seeds a single merchant on its own
 (`mongo-init/seed-merchants.js`). Wait until the seed has run before the gateway hits the
 credential store:
 
@@ -46,16 +54,28 @@ docker exec payment_gateway_mongo mongosh payment_gateway --quiet \
 
 You should see one document with `clientId: "demo-merchant"`.
 
-### 2. Start the API
+To bring the supporting services up **without** building/rebuilding the API image (e.g. when
+running the integration test suite which boots its own in-process API), use:
+
+```bash
+docker compose up -d bank_simulator mongo
+```
+
+### 2. The API is already running
+
+`docker compose up --build` already started the API container, which listens on
+`http://localhost:5067`. All curl examples below use that URL. If you only started the
+supporting services (step 1's second form), start the API separately with:
 
 ```bash
 dotnet run --project src/PaymentGateway.Api
 ```
 
-The API listens on `http://localhost:5067` / `https://localhost:7092` (the dev profile in
-`Properties/launchSettings.json`). All examples below use the HTTP form.
+The local SDK run uses the dev profile in `Properties/launchSettings.json` (also `5067`); only
+the container overrides the bank/Mongo URLs via env vars (`BankSimulator__BaseUrl`,
+`Mongo__ConnectionString`), since `appsettings.json` keeps `localhost` for non-docker dev.
 
-### 3. Get a bearer token
+### 3. Get a bearer token (from the seeded demo merchant)
 
 ```bash
 curl -s -X POST http://localhost:5067/api/auth/token \

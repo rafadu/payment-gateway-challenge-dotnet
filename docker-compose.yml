@@ -1,5 +1,11 @@
 version: "3.8"
 
+# Bring up everything with one command: `docker compose up` (or `docker compose up --build` for the
+# first run / after code changes). The api depends on bank_simulator and mongo via `depends_on`,
+# so the supporting services start first; the api itself connects lazily (MongoClient + the typed
+# HttpClient both defer their first I/O until a request lands), so the readiness of the
+# dependencies doesn't have to be probed via healthchecks for the api to come up healthy.
+
 services:
   bank_simulator:
     container_name: bank_simulator
@@ -28,3 +34,27 @@ services:
       - type: bind
         source: ./mongo-init
         target: /docker-entrypoint-initdb.d
+
+  api:
+    container_name: payment_gateway_api
+    build:
+      context: .
+      dockerfile: src/PaymentGateway.Api/Dockerfile
+    ports:
+      # Host 5067 → container 8080. Matches launchSettings.json + the README's "How to call
+      # the API" walkthrough, so a developer who already runs the API locally on 5067 sees the
+      # same port when they switch to docker-compose up.
+      - "5067:8080"
+    environment:
+      # In Docker the bank simulator and MongoDB are reachable at the compose service names
+      # (not localhost). The env-var keys use `__` as the section separator to override the
+      # matching appsettings.json values.
+      BankSimulator__BaseUrl: http://bank_simulator:8080
+      Mongo__ConnectionString: mongodb://mongo:27017
+      ASPNETCORE_ENVIRONMENT: Production
+      # Skip the Swagger UI in the containerised API — Swagger is a Development affordance,
+      # not a production surface. The README's "How to call the API" walkthrough doesn't need it.
+      Swagger__Enabled: "false"
+    depends_on:
+      - bank_simulator
+      - mongo
