@@ -1,9 +1,5 @@
-using FluentValidation;
-
 using PaymentGateway.Api.Configuration;
-using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Services;
-using PaymentGateway.Api.Validation;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,23 +19,13 @@ builder.Services.AddSingleton<IPaymentsService, PaymentsService>();
 builder.Services.AddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>();
 builder.Services.AddScoped<IdempotencyResourceFilter>();
 
-// Acquiring bank client: typed HttpClient with bounded timeout (ADR-0001). Stage 7 wires it with
-// localhost defaults so the IPaymentsService registration above can be constructed; stage 9 reads
-// BaseUrl/TimeoutSeconds from the BankSimulator configuration section once appsettings.json is
-// finalised (design.md).
-builder.Services.AddHttpClient<IAcquiringBankClient, AcquiringBankClient>(client =>
-{
-    client.BaseAddress = new Uri("http://localhost:8080");
-    client.Timeout = TimeSpan.FromSeconds(5);
-});
+// Acquiring bank client: typed HttpClient with bounded timeout (ADR-0001). BaseUrl /
+// TimeoutSeconds are read from the BankSimulator configuration section (design.md).
+builder.Services.AddBankClient(builder.Configuration);
 
-// FluentValidation for POST /api/payments. The currency allow-list is hardcoded here in stage 7;
-// stage 9 reads it from the SupportedCurrencies configuration section (design.md) once
-// appsettings.json is finalised.
-builder.Services.AddSingleton<IValidator<PostPaymentRequest>>(sp =>
-    new PostPaymentRequestValidator(
-        new[] { "GBP", "USD", "EUR" },
-        sp.GetRequiredService<TimeProvider>()));
+// FluentValidation for POST /api/payments. Currency allow-list is read from the
+// SupportedCurrencies configuration section (design.md).
+builder.Services.AddPaymentValidation(builder.Configuration);
 
 // MongoDB-backed merchant credentials behind an in-memory read-through cache (ADR-0010).
 builder.Services.AddMongoDb(builder.Configuration);
