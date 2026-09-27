@@ -118,7 +118,11 @@ not close this deeper gap.
 - `IAcquiringBankClient` is a typed `HttpClient` (via `IHttpClientFactory`), configured with a
   `BaseAddress` and bounded `Timeout` from configuration (`BankSimulator:BaseUrl`,
   `BankSimulator:TimeoutSeconds`) — avoids the socket-exhaustion pitfall of constructing
-  `HttpClient` per call, and gives the timeout behavior decided in ADR-0001.
+  `HttpClient` per call, and gives the timeout behavior decided in ADR-0001. Its consumer
+  `PaymentsService` is registered **scoped**, not singleton: capturing a typed client in a
+  singleton would pin one `HttpClient` for the process lifetime and defeat `IHttpClientFactory`'s
+  handler rotation (stale DNS) — the very thing the factory exists to prevent. A `ServiceLifetimeTests`
+  regression test locks this in.
 - The bank's wire contract (`card_number`, `expiry_date` as `"MM/yyyy"`, `currency`, `amount`,
   `cvv`, snake_case) is modeled with its own DTOs, kept separate from the merchant-facing
   contract, so the two independent JSON conventions never leak into each other.
