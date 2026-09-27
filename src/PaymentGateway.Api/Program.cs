@@ -16,6 +16,9 @@ builder.Services.AddSingleton<IPaymentsRepository, PaymentsRepository>();
 builder.Services.AddMongoDb(builder.Configuration);
 builder.Services.AddCredentialCache(builder.Configuration);
 
+// Merchant login: JWT issuance for POST /api/auth/token (ADR-0010).
+builder.Services.AddTokenIssuance(builder.Configuration);
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
