@@ -122,8 +122,15 @@ not close this deeper gap.
 - The bank's wire contract (`card_number`, `expiry_date` as `"MM/yyyy"`, `currency`, `amount`,
   `cvv`, snake_case) is modeled with its own DTOs, kept separate from the merchant-facing
   contract, so the two independent JSON conventions never leak into each other.
-- Any non-success response, timeout, or network failure from the bank is translated into a
-  `BankUnavailableException`, caught centrally and mapped to `503`.
+- A timeout, network failure, unreadable response body, or a non-success response **other than
+  `400`** is translated into a `BankUnavailableException`, caught centrally and mapped to `503` —
+  the "we don't know" outcome, never conflated with a decline.
+- A `400 Bad Request` from the bank is handled separately, as an `InvalidBankRequestException`. A
+  `400` means the request we sent was missing a required field; since merchant input is already
+  validated before the bank is called, this signals a defect in how the gateway built the bank
+  request, not a bank-availability problem. It is therefore an internal error (mapped to `500`),
+  **not** a `503` — surfacing it as `503` would invite a merchant retry that could never succeed
+  and would corrupt bank-availability metrics.
 
 ## Concurrency
 
