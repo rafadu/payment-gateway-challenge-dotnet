@@ -21,7 +21,7 @@ public sealed class PaymentsService : IPaymentsService
         _repository = repository;
     }
 
-    public async Task<Payment> ProcessPaymentAsync(PostPaymentRequest request, CancellationToken cancellationToken = default)
+    public async Task<Payment> ProcessPaymentAsync(PostPaymentRequest request, string merchantId, CancellationToken cancellationToken = default)
     {
         // The request is already validated by FluentValidation in front of the controller, so
         // CardNumber/Currency/Cvv are non-null and CardNumber is 14–19 digits — hence the `!` and
@@ -40,6 +40,7 @@ public sealed class PaymentsService : IPaymentsService
         var payment = new Payment
         {
             Id = Guid.NewGuid(),
+            MerchantId = merchantId,
             Status = bankResponse.Authorized ? PaymentStatus.Authorized : PaymentStatus.Declined,
             CardNumberLastFour = request.CardNumber![^4..],
             ExpiryMonth = request.ExpiryMonth,

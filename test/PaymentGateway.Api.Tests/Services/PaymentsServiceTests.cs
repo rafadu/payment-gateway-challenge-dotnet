@@ -31,6 +31,8 @@ public class PaymentsServiceTests
         Cvv = "123"
     };
 
+    private const string TestMerchantId = "merchant-42";
+
     private void BankResponds(bool authorized) =>
         _bank.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
             .Returns(new BankPaymentResponse { Authorized = authorized, AuthorizationCode = "auth-code" });
@@ -42,7 +44,7 @@ public class PaymentsServiceTests
         Payment? persisted = null;
         _repository.When(r => r.Add(Arg.Any<Payment>())).Do(ci => persisted = ci.Arg<Payment>());
 
-        var result = await _service.ProcessPaymentAsync(ARequest());
+        var result = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
 
         result.Status.Should().Be(PaymentStatus.Authorized);
         _repository.Received(1).Add(Arg.Any<Payment>());
@@ -56,7 +58,7 @@ public class PaymentsServiceTests
         Payment? persisted = null;
         _repository.When(r => r.Add(Arg.Any<Payment>())).Do(ci => persisted = ci.Arg<Payment>());
 
-        var result = await _service.ProcessPaymentAsync(ARequest());
+        var result = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
 
         result.Status.Should().Be(PaymentStatus.Declined);
         persisted!.Status.Should().Be(PaymentStatus.Declined);
@@ -70,7 +72,7 @@ public class PaymentsServiceTests
         _bank.ProcessPaymentAsync(Arg.Do<BankPaymentRequest>(r => sent = r), Arg.Any<CancellationToken>())
             .Returns(new BankPaymentResponse { Authorized = true });
 
-        await _service.ProcessPaymentAsync(ARequest());
+        await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
 
         sent.Should().NotBeNull();
         sent!.CardNumber.Should().Be("2222405343248877");
@@ -93,7 +95,7 @@ public class PaymentsServiceTests
         var request = ARequest();
         request.ExpiryMonth = month;
         request.ExpiryYear = year;
-        await _service.ProcessPaymentAsync(request);
+        await _service.ProcessPaymentAsync(request, TestMerchantId);
 
         sent!.ExpiryDate.Should().Be(expected);
     }
@@ -105,7 +107,7 @@ public class PaymentsServiceTests
         Payment? persisted = null;
         _repository.When(r => r.Add(Arg.Any<Payment>())).Do(ci => persisted = ci.Arg<Payment>());
 
-        var result = await _service.ProcessPaymentAsync(ARequest());
+        var result = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
 
         result.CardNumberLastFour.Should().Be("8877");
         persisted!.CardNumberLastFour.Should().Be("8877");
@@ -116,12 +118,25 @@ public class PaymentsServiceTests
     }
 
     [Fact]
+    public async Task Persists_the_caller_merchant_id_on_the_payment()
+    {
+        BankResponds(authorized: true);
+        Payment? persisted = null;
+        _repository.When(r => r.Add(Arg.Any<Payment>())).Do(ci => persisted = ci.Arg<Payment>());
+
+        var result = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
+
+        result.MerchantId.Should().Be(TestMerchantId);
+        persisted!.MerchantId.Should().Be(TestMerchantId);
+    }
+
+    [Fact]
     public async Task Assigns_a_new_unique_id_to_each_payment()
     {
         BankResponds(authorized: true);
 
-        var first = await _service.ProcessPaymentAsync(ARequest());
-        var second = await _service.ProcessPaymentAsync(ARequest());
+        var first = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
+        var second = await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
 
         first.Id.Should().NotBeEmpty();
         second.Id.Should().NotBeEmpty();
@@ -135,7 +150,7 @@ public class PaymentsServiceTests
         _bank.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(failure);
 
-        var thrown = await _service.Invoking(s => s.ProcessPaymentAsync(ARequest()))
+        var thrown = await _service.Invoking(s => s.ProcessPaymentAsync(ARequest(), TestMerchantId))
             .Should().ThrowAsync<Exception>();
         // The exact instance must propagate untouched — not swallowed or rewrapped.
         thrown.Which.Should().BeSameAs(failure);

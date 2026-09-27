@@ -12,14 +12,15 @@ public interface IPaymentsService
 {
     /// <summary>
     /// Processes <paramref name="request"/> (assumed already validated) against the acquiring bank
-    /// and persists the resulting <see cref="Payment"/>.
+    /// on behalf of <paramref name="merchantId"/>, and persists the resulting <see cref="Payment"/>
+    /// tagged with that merchant id (ADR-0010).
     /// </summary>
-    /// <returns>The persisted payment, carrying its generated id and bank-adjudicated status.</returns>
+    /// <returns>The persisted payment, carrying its generated id, bank-adjudicated status, and the caller's merchant id.</returns>
     /// <exception cref="BankUnavailableException">
     /// The bank gave no definitive answer; nothing is persisted.
     /// </exception>
     /// <exception cref="InvalidBankRequestException">
     /// The bank rejected the request as malformed; nothing is persisted.
     /// </exception>
-    Task<Payment> ProcessPaymentAsync(PostPaymentRequest request, CancellationToken cancellationToken = default);
+    Task<Payment> ProcessPaymentAsync(PostPaymentRequest request, string merchantId, CancellationToken cancellationToken = default);
 }
