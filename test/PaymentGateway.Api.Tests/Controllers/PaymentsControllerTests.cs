@@ -21,7 +21,10 @@ using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Bank;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Models.Responses;
-using PaymentGateway.Api.Services;
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Exceptions;
+using PaymentGateway.Api.Filters;
+using PaymentGateway.Api.Persistence;
 
 namespace PaymentGateway.Api.Tests.Controllers;
 

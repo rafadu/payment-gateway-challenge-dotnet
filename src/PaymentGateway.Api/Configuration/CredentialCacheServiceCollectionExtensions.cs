@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Caching.Memory;
 
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Persistence;
 using PaymentGateway.Api.Services;
 
 namespace PaymentGateway.Api.Configuration;

@@ -1,6 +1,6 @@
 using PaymentGateway.Api.Models.Bank;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Abstractions;
 
 /// <summary>
 /// Sends a payment to the acquiring bank and returns its adjudication.

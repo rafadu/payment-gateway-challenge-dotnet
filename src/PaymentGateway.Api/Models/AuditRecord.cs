@@ -1,4 +1,4 @@
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Models;
 
 /// <summary>
 /// A single audit record (ADR-0004): one document per processed request. Captures the
@@ -39,35 +39,4 @@ public sealed class AuditRecord
     /// Null for read requests.
     /// </summary>
     public IReadOnlyDictionary<string, object?>? RequestSummary { get; init; }
-}
-
-/// <summary>
-/// Persists <see cref="AuditRecord"/> instances. One process-wide singleton —
-/// <see cref="AuditMiddleware"/> awaits <see cref="WriteAsync"/> before returning the
-/// response, but the store itself holds no per-request state.
-/// </summary>
-public interface IAuditStore
-{
-    Task WriteAsync(AuditRecord record, CancellationToken cancellationToken = default);
-}
-
-/// <summary>
-/// In-memory audit store used by tests. Production code uses
-/// <c>MongoAuditStore</c> via <c>AddAudit</c>.
-/// </summary>
-public sealed class InMemoryAuditStore : IAuditStore
-{
-    private readonly List<AuditRecord> _records = new();
-    private readonly object _lock = new();
-
-    public IReadOnlyList<AuditRecord> Records
-    {
-        get { lock (_lock) return _records.ToArray(); }
-    }
-
-    public Task WriteAsync(AuditRecord record, CancellationToken cancellationToken = default)
-    {
-        lock (_lock) _records.Add(record);
-        return Task.CompletedTask;
-    }
 }

@@ -16,7 +16,8 @@ using NSubstitute;
 using PaymentGateway.Api.Controllers;
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Responses;
-using PaymentGateway.Api.Services;
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Persistence;
 
 namespace PaymentGateway.Api.Tests.Controllers;
 

@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 
 using NSubstitute;
 
+using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Services;
 

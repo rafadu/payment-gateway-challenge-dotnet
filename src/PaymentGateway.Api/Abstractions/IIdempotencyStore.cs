@@ -1,4 +1,4 @@
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Abstractions;
 
 /// <summary>
 /// Captured response that the <see cref="IIdempotencyStore"/> replays verbatim on a successful

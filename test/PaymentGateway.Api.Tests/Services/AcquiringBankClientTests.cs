@@ -5,7 +5,8 @@ using System.Text.Json;
 using FluentAssertions;
 
 using PaymentGateway.Api.Models.Bank;
-using PaymentGateway.Api.Services;
+using PaymentGateway.Api.Clients;
+using PaymentGateway.Api.Exceptions;
 
 namespace PaymentGateway.Api.Tests.Services;
 

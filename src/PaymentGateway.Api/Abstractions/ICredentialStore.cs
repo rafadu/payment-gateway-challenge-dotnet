@@ -1,6 +1,6 @@
 using PaymentGateway.Api.Models;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Abstractions;
 
 /// <summary>
 /// The backing source of merchant credentials (MongoDB in this build). Sits behind

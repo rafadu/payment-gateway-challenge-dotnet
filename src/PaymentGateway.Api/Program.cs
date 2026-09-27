@@ -1,4 +1,8 @@
+using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Configuration;
+using PaymentGateway.Api.Filters;
+using PaymentGateway.Api.Middleware;
+using PaymentGateway.Api.Persistence;
 using PaymentGateway.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);

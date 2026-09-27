@@ -1,7 +1,7 @@
 using FluentAssertions;
 
 using PaymentGateway.Api.Models;
-using PaymentGateway.Api.Services;
+using PaymentGateway.Api.Persistence;
 
 namespace PaymentGateway.Api.Tests.Services;
 

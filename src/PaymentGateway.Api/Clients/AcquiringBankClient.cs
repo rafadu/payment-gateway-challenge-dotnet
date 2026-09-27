@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Bank;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Clients;
 
 /// <summary>
 /// Typed <see cref="HttpClient"/> adapter over the acquiring bank simulator. The base address and

@@ -3,7 +3,7 @@ using MongoDB.Bson.Serialization.Attributes;
 
 using PaymentGateway.Api.Models;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Persistence;
 
 /// <summary>
 /// MongoDB document shape for the <c>payments</c> collection. Mirrors the <see cref="Payment"/>

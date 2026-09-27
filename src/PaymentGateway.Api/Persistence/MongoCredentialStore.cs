@@ -2,9 +2,10 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
 
+using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Models;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Persistence;
 
 /// <summary>
 /// MongoDB-backed <see cref="ICredentialStore"/> over the <c>merchants</c> collection seeded at

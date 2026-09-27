@@ -6,6 +6,8 @@ using NSubstitute.ExceptionExtensions;
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Bank;
 using PaymentGateway.Api.Models.Requests;
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Services;
 
 namespace PaymentGateway.Api.Tests.Services;

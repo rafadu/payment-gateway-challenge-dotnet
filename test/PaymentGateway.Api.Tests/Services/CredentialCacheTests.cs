@@ -4,6 +4,7 @@ using Microsoft.Extensions.Caching.Memory;
 
 using NSubstitute;
 
+using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Services;
 

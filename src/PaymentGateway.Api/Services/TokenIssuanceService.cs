@@ -3,6 +3,9 @@ using System.Text;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Models;
+
 namespace PaymentGateway.Api.Services;
 
 /// <summary>

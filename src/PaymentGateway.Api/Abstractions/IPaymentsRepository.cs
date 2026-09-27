@@ -1,6 +1,6 @@
 using PaymentGateway.Api.Models;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Abstractions;
 
 /// <summary>
 /// Stores and retrieves bank-adjudicated payments. The MongoDB-backed implementation

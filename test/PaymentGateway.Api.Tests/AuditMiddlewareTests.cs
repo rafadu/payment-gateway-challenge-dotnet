@@ -11,7 +11,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using PaymentGateway.Api.Controllers;
 using PaymentGateway.Api.Models.Requests;
-using PaymentGateway.Api.Services;
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Exceptions;
+using PaymentGateway.Api.Persistence;
 
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;

@@ -5,7 +5,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 
-namespace PaymentGateway.Api.Services;
+using PaymentGateway.Api.Abstractions;
+
+namespace PaymentGateway.Api.Filters;
 
 /// <summary>
 /// <see cref="IAsyncResourceFilter"/> that implements the <c>Idempotency-Key</c> HTTP header

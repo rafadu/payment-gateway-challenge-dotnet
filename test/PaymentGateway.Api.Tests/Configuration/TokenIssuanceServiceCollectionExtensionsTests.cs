@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 
 using PaymentGateway.Api.Configuration;
+using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Services;
 
 namespace PaymentGateway.Api.Tests.Configuration;

@@ -1,4 +1,4 @@
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Exceptions;
 
 /// <summary>
 /// Thrown when the acquiring bank cannot give a definitive authorized/declined answer — a

@@ -15,7 +15,7 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 
 using PaymentGateway.Api.Models.Requests;
-using PaymentGateway.Api.Services;
+using PaymentGateway.Api.Models;
 
 namespace PaymentGateway.Api.Tests.Integration;
 

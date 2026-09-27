@@ -1,4 +1,6 @@
-namespace PaymentGateway.Api.Services;
+using PaymentGateway.Api.Models;
+
+namespace PaymentGateway.Api.Abstractions;
 
 /// <summary>
 /// Verifies a merchant's client credentials and issues a signed JWT (ADR-0010).

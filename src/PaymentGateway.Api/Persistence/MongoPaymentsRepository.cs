@@ -1,8 +1,9 @@
 using MongoDB.Driver;
 
+using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Models;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Persistence;
 
 /// <summary>
 /// MongoDB-backed <see cref="IPaymentsRepository"/>. Writes one document per payment to the

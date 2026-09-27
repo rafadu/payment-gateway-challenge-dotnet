@@ -1,7 +1,10 @@
 using MongoDB.Bson;
 using MongoDB.Driver;
 
-namespace PaymentGateway.Api.Services;
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Models;
+
+namespace PaymentGateway.Api.Persistence;
 
 /// <summary>
 /// MongoDB-backed <see cref="IAuditStore"/>. Writes one document per audit record to the

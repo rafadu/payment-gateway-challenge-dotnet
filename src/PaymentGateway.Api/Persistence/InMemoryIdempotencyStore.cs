@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 
-namespace PaymentGateway.Api.Services;
+using PaymentGateway.Api.Abstractions;
+
+namespace PaymentGateway.Api.Persistence;
 
 /// <summary>
 /// <see cref="ConcurrentDictionary{TKey,TValue}"/>-backed <see cref="IIdempotencyStore"/>.

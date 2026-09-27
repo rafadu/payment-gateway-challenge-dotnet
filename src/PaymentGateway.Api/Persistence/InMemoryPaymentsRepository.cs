@@ -1,8 +1,9 @@
 using System.Collections.Concurrent;
 
+using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Models;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Persistence;
 
 /// <summary>
 /// In-memory <see cref="IPaymentsRepository"/> backed by a <see cref="ConcurrentDictionary{TKey,TValue}"/>.

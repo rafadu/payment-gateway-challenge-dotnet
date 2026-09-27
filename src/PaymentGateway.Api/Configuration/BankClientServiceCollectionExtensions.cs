@@ -1,4 +1,5 @@
-using PaymentGateway.Api.Services;
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Clients;
 
 namespace PaymentGateway.Api.Configuration;
 

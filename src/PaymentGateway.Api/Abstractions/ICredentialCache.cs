@@ -1,6 +1,6 @@
 using PaymentGateway.Api.Models;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Abstractions;
 
 /// <summary>
 /// A read-through, in-memory cache of merchant credentials over <see cref="ICredentialStore"/>

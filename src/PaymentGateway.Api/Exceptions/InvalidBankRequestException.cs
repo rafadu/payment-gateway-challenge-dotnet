@@ -1,4 +1,4 @@
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Exceptions;
 
 /// <summary>
 /// Thrown when the acquiring bank rejects the call with <c>400 Bad Request</c> — meaning the

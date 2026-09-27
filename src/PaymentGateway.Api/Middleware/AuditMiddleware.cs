@@ -2,9 +2,11 @@ using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
 
+using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Requests;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Middleware;
 
 /// <summary>
 /// Middleware that persists an <see cref="AuditRecord"/> for every processed request

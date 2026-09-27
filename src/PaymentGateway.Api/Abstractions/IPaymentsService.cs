@@ -1,7 +1,7 @@
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Requests;
 
-namespace PaymentGateway.Api.Services;
+namespace PaymentGateway.Api.Abstractions;
 
 /// <summary>
 /// Orchestrates processing a payment: maps an already-validated request to the bank's wire format,

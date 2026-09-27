@@ -2,6 +2,7 @@ using System.Text;
 
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
+using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Services;
 
 namespace PaymentGateway.Api.Configuration;
