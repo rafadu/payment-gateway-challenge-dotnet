@@ -70,6 +70,21 @@ The "follow-on" flagged above has been built: ADR-0010 implements a MongoDB `mer
 collection plus an in-memory read-through credential cache (Redis evolution documented
 separately in ADR-0011). That closes the merchant authN/authZ half of this ADR's scope.
 
-The **audit trail** half of this ADR — the `AuditRecord` collection, field-level encryption for
-PII, correlation IDs, etc. — remains undecided/out of scope for this submission. Don't treat
-ADR-0010 as having implemented audit persistence; it hasn't.
+## Update — audit trail half now implemented (Stage 11)
+The audit half of this ADR — a MongoDB `audit_records` collection, an audit middleware that
+captures every processed request — has now been built. One document per request, with the same
+masking rules: full PAN and CVV are never persisted; only `cardNumberLastFour`, currency,
+amount, expiry reach the collection. Outcome labels distinguish `Authorized`/`Declined` (both
+are `201`s), `ValidationRejected`/`Unauthorized`/`NotFound`/`Conflict`/`HashMismatch`/
+`BankUnavailable`/`InternalError`. The middleware runs before MVC's authorization layer so it
+captures `401`s as well as `201`/`400`/`503`.
+
+What's **still** out of scope and would land later:
+
+- **Field-level encryption** for caller IP / merchant contact metadata. The audit shape
+  contains no PII today (no caller IP, no merchant contact info) so this is moot for the
+  current implementation. The moment any of those fields are added, the per-field envelope
+  encryption described in the original Decision block must come with them.
+- **Asynchronous audit pipeline** (ADR-0005). Today the middleware awaits the Mongo write
+  before the response returns; a real production system would batch-write or push to a queue.
+- **Correlation IDs / trace context** for stitching a request across multiple services.

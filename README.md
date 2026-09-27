@@ -154,3 +154,51 @@ via env var / secret store. The in-memory credential cache (`CredentialCache:Ttl
 in-memory idempotency-key store are intentionally non-persistent — both are cleared on process
 restart. Both are documented limitations, not solved problems (see ADR-0011 for the cache's
 planned Redis evolution; ADR-0003 for the idempotency store's known limitations).
+
+### Inspecting the audit trail
+
+Every processed request is recorded in the MongoDB `audit_records` collection by an audit
+middleware (ADR-0004, audit half). The middleware runs before MVC's authorization layer so it
+captures `401`s as well as `201`/`400`/`503` outcomes. From a `mongosh` shell:
+
+```bash
+# Last 10 audit records across the system
+docker exec payment_gateway_mongo mongosh payment_gateway --quiet \
+  --eval 'db.audit_records.find().sort({timestamp:-1}).limit(10).toArray()'
+
+# All audit records for one merchant (their requests + outcomes)
+docker exec payment_gateway_mongo mongosh payment_gateway --quiet \
+  --eval 'db.audit_records.find({merchantId: "11111111-1111-1111-1111-111111111111"}).sort({timestamp:-1}).toArray()'
+```
+
+Each document has: `_id` (audit record GUID), `timestamp`, `merchantId` (empty for unauthenticated
+requests), `method`, `path`, `statusCode`, `outcome` (`Authorized`/`Declined`/
+`ValidationRejected`/`Unauthorized`/`NotFound`/`Conflict`/`HashMismatch`/`BankUnavailable`/
+`InternalError`), `durationMs`, and `requestSummary` (a nested document with the masked card
+last-four, currency, amount, expiry — **never** the full PAN or the CVV).
+
+### Running the test suite
+
+Two test commands, with different scope:
+
+```bash
+# Default — runs every test except the integration suite. Safe in any environment.
+dotnet test
+
+# Integration suite — requires `docker-compose up` (bank_simulator + mongo) running first.
+# Skipped, not failed, if the containers aren't reachable.
+dotnet test --filter "Category=Integration"
+```
+
+The integration tests live in `test/PaymentGateway.Api.Tests/Integration/`. They cover:
+
+- **Bank simulator wire contract** — odd last digit → `201` Authorized, even → `201` Declined,
+  `0` → `503` bank unavailable (per `imposters/bank_simulator.ejs`).
+- **Full auth flow** — `POST /api/auth/token` with `demo-merchant`/`demo-secret` against real
+  Mongo → bearer token → `POST /api/payments` → `GET /api/payments/{id}`, all green.
+- **Uniform 401** — wrong secret against real Mongo returns `401`, indistinguishable from an
+  unknown client (ADR-0010).
+
+If `docker-compose up` isn't running, `dotnet test --filter "Category=Integration"` reports
+5 skipped / 0 failed / 0 passed with a clear message — never a misleading "test passed" on a
+suite that didn't actually run.

@@ -39,6 +39,10 @@ public class AuthControllerTests
             {
                 services.RemoveAll<ICredentialStore>();
                 services.AddSingleton(store);
+                // Audit middleware would otherwise try to write to MongoDB on every request —
+                // no Mongo in unit tests.
+                services.RemoveAll<IAuditStore>();
+                services.AddSingleton<IAuditStore>(new InMemoryAuditStore());
             }));
 
     private static HttpClient ClientWith(ICredentialStore store) => FactoryWith(store).CreateClient();

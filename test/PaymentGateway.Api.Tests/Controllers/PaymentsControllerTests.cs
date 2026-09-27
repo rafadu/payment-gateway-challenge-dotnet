@@ -33,6 +33,10 @@ public class PaymentsControllerTests
 
     private static (WebApplicationFactory<PaymentsController> factory, HttpClient client) FactoryWith(IPaymentsRepository repository)
     {
+        // Substitute the audit store so the audit middleware doesn't try to write to a MongoDB
+        // container that isn't running in unit tests (the default registration would hang on
+        // connection-timeout instead of failing fast).
+        var auditStore = new InMemoryAuditStore();
         var factory = new WebApplicationFactory<PaymentsController>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
@@ -42,6 +46,11 @@ public class PaymentsControllerTests
                 var existing = services.Single(d => d.ServiceType == typeof(IPaymentsRepository));
                 services.Remove(existing);
                 services.AddSingleton(repository);
+
+                // Replace the MongoDB-backed audit store with an in-memory one (see the
+                // constructor above) so the audit middleware doesn't block on MongoDB.
+                services.RemoveAll<IAuditStore>();
+                services.AddSingleton<IAuditStore>(auditStore);
             });
         });
         return (factory, factory.CreateClient());
@@ -71,6 +80,8 @@ public class PaymentsControllerTests
                 services.AddSingleton(repository);
                 services.RemoveAll<IAcquiringBankClient>();
                 services.AddSingleton(bankStub);
+                services.RemoveAll<IAuditStore>();
+                services.AddSingleton<IAuditStore>(new InMemoryAuditStore());
             });
         });
         return (factory, factory.CreateClient(), bankStub);
@@ -90,6 +101,8 @@ public class PaymentsControllerTests
                 services.AddSingleton(repository);
                 services.RemoveAll<IAcquiringBankClient>();
                 services.AddSingleton(bankStub);
+                services.RemoveAll<IAuditStore>();
+                services.AddSingleton<IAuditStore>(new InMemoryAuditStore());
             });
         });
         return (factory, factory.CreateClient(), bankStub);

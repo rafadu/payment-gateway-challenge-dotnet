@@ -31,6 +31,9 @@ builder.Services.AddPaymentValidation(builder.Configuration);
 builder.Services.AddMongoDb(builder.Configuration);
 builder.Services.AddCredentialCache(builder.Configuration);
 
+// MongoDB-backed audit trail (ADR-0004, audit half — Stage 11).
+builder.Services.AddAudit(builder.Configuration);
+
 // Merchant login: JWT issuance for POST /api/auth/token (ADR-0010).
 builder.Services.AddTokenIssuance(builder.Configuration);
 
@@ -48,9 +51,19 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// Audit trail (ADR-0004) — middleware-level so it captures 401s emitted by UseAuthorization.
+// Placed before UseAuthorization/MapControllers so the middleware sees requests rejected at
+// the authorization-middleware layer too. User may be anonymous at this point for unauth requests;
+// that's expected and the audit record correctly records MerchantId="" for those.
+app.UseMiddleware<AuditMiddleware>();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
 app.Run();
+
+// Exposed so test projects can use WebApplicationFactory<Program>. Top-level statements compile to
+// an internal Program class by default; the partial declaration below promotes it to public.
+public partial class Program;

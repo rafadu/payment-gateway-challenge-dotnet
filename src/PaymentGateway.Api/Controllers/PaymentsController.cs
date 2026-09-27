@@ -61,6 +61,8 @@ public class PaymentsController : ControllerBase
         try
         {
             var payment = await _paymentsService.ProcessPaymentAsync(request, merchantId, cancellationToken);
+            // The audit filter reads this to distinguish Authorized vs Declined (both are 201s).
+            HttpContext.Items[AuditMiddleware.OutcomeItemKey] = payment.Status.ToString();
             return CreatedAtAction(nameof(GetPayment), new { id = payment.Id }, ToResponse(payment));
         }
         catch (BankUnavailableException)
