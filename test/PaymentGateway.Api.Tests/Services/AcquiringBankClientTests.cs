@@ -1,17 +1,30 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
-
 using FluentAssertions;
-
-using PaymentGateway.Api.Models.Bank;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using PaymentGateway.Api.Clients;
 using PaymentGateway.Api.Exceptions;
+using PaymentGateway.Api.Metrics;
+using PaymentGateway.Api.Models.Bank;
 
 namespace PaymentGateway.Api.Tests.Services;
 
 public class AcquiringBankClientTests
 {
+    private readonly IMeterFactory _meterFactory;
+    private readonly PaymentMetrics _metrics;
+
+    public AcquiringBankClientTests()
+    {
+        var services = new ServiceCollection();
+        services.AddMetrics();
+        _meterFactory = services.BuildServiceProvider().GetRequiredService<IMeterFactory>();
+        _metrics = new PaymentMetrics(_meterFactory);
+    }
+
     private static BankPaymentRequest ARequest() => new()
     {
         CardNumber = "2222405343248877",
@@ -21,7 +34,7 @@ public class AcquiringBankClientTests
         Cvv = "123"
     };
 
-    private static AcquiringBankClient ClientFor(HttpMessageHandler handler, TimeSpan? timeout = null)
+    private AcquiringBankClient ClientFor(HttpMessageHandler handler, TimeSpan? timeout = null)
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://bank.test") };
         if (timeout is not null)
@@ -29,8 +42,11 @@ public class AcquiringBankClientTests
             httpClient.Timeout = timeout.Value;
         }
 
-        return new AcquiringBankClient(httpClient);
+        return new AcquiringBankClient(httpClient, _metrics);
     }
+
+    private MetricCollector<double> BankCallCollector() =>
+        new(_meterFactory, PaymentMetrics.MeterName, "payments.bank.call.duration");
 
     private static StubHttpMessageHandler RespondsWith(HttpStatusCode status, string json) =>
         new((_, _) => Task.FromResult(new HttpResponseMessage(status)
@@ -175,5 +191,75 @@ public class AcquiringBankClientTests
         root.GetProperty("currency").GetString().Should().Be("GBP");
         root.GetProperty("amount").GetInt32().Should().Be(100);
         root.GetProperty("cvv").GetString().Should().Be("123");
+    }
+
+    [Fact]
+    public async Task Records_bank_call_duration_with_a_success_outcome_on_a_definitive_answer()
+    {
+        using var collector = BankCallCollector();
+        var client = ClientFor(RespondsWith(HttpStatusCode.OK,
+            """{ "authorized": true, "authorization_code": "x" }"""));
+
+        await client.ProcessPaymentAsync(ARequest());
+
+        var snapshot = collector.GetMeasurementSnapshot();
+        snapshot.Should().ContainSingle();
+        snapshot[0].Tags["acquirer"].Should().Be("simulator");
+        snapshot[0].Tags["outcome"].Should().Be("success");
+        snapshot[0].Value.Should().BeGreaterThanOrEqualTo(0);
+    }
+
+    [Fact]
+    public async Task Records_bank_call_duration_with_a_timeout_outcome_when_the_call_times_out()
+    {
+        using var collector = BankCallCollector();
+        var handler = new StubHttpMessageHandler(async (_, ct) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        var client = ClientFor(handler, timeout: TimeSpan.FromMilliseconds(50));
+
+        await client.Invoking(c => c.ProcessPaymentAsync(ARequest()))
+            .Should().ThrowAsync<BankUnavailableException>();
+
+        var snapshot = collector.GetMeasurementSnapshot();
+        snapshot.Should().ContainSingle();
+        snapshot[0].Tags["outcome"].Should().Be("timeout");
+    }
+
+    [Fact]
+    public async Task Records_bank_call_duration_with_an_error_outcome_on_a_non_success_status()
+    {
+        using var collector = BankCallCollector();
+        var client = ClientFor(RespondsWith(HttpStatusCode.ServiceUnavailable, "{}"));
+
+        await client.Invoking(c => c.ProcessPaymentAsync(ARequest()))
+            .Should().ThrowAsync<BankUnavailableException>();
+
+        var snapshot = collector.GetMeasurementSnapshot();
+        snapshot.Should().ContainSingle();
+        snapshot[0].Tags["outcome"].Should().Be("error");
+    }
+
+    [Fact]
+    public async Task Does_not_record_a_bank_call_for_a_caller_initiated_cancellation()
+    {
+        // A genuine caller cancellation is not a bank latency/availability event — it must not
+        // pollute the histogram.
+        using var collector = BankCallCollector();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var handler = new StubHttpMessageHandler(async (_, ct) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        var client = ClientFor(handler);
+
+        await client.Invoking(c => c.ProcessPaymentAsync(ARequest(), cts.Token))
+            .Should().ThrowAsync<OperationCanceledException>();
+
+        collector.GetMeasurementSnapshot().Should().BeEmpty();
     }
 }

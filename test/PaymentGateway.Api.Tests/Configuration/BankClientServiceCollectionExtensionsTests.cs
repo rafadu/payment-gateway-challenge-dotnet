@@ -23,6 +23,8 @@ public class BankClientServiceCollectionExtensionsTests
     public void Registers_a_resolvable_acquiring_bank_client()
     {
         var services = new ServiceCollection();
+        // The typed client depends on PaymentMetrics (ADR-0007), registered by AddObservability.
+        services.AddObservability();
         services.AddBankClient(Config(
             ("BankSimulator:BaseUrl", ValidBaseUrl),
             ("BankSimulator:TimeoutSeconds", ValidTimeoutSeconds.ToString())));

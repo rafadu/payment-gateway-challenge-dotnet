@@ -1,11 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
-
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-
 using PaymentGateway.Api.Abstractions;
+using PaymentGateway.Api.Metrics;
 
 namespace PaymentGateway.Api.Filters;
 
@@ -35,8 +34,13 @@ public sealed class IdempotencyResourceFilter : IAsyncResourceFilter
     public const string HeaderName = "Idempotency-Key";
 
     private readonly IIdempotencyStore _store;
+    private readonly PaymentMetrics _metrics;
 
-    public IdempotencyResourceFilter(IIdempotencyStore store) => _store = store;
+    public IdempotencyResourceFilter(IIdempotencyStore store, PaymentMetrics metrics)
+    {
+        _store = store;
+        _metrics = metrics;
+    }
 
     public async Task OnResourceExecutionAsync(ResourceExecutingContext context, ResourceExecutionDelegate next)
     {
@@ -72,6 +76,7 @@ public sealed class IdempotencyResourceFilter : IAsyncResourceFilter
 
             case IdempotencyClaimOutcome.Completed:
                 await WriteCachedAsync(context.HttpContext, claim.CachedResponse!);
+                _metrics.RecordIdempotencyReplay();
                 context.Result = new EmptyResult();
                 break;
 

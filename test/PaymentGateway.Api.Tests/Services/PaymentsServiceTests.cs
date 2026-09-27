@@ -1,13 +1,15 @@
+using System.Diagnostics.Metrics;
 using FluentAssertions;
-
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
-
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Bank;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Exceptions;
+using PaymentGateway.Api.Metrics;
 using PaymentGateway.Api.Services;
 
 namespace PaymentGateway.Api.Tests.Services;
@@ -16,11 +18,15 @@ public class PaymentsServiceTests
 {
     private readonly IAcquiringBankClient _bank = Substitute.For<IAcquiringBankClient>();
     private readonly IPaymentsRepository _repository = Substitute.For<IPaymentsRepository>();
+    private readonly IMeterFactory _meterFactory;
     private readonly PaymentsService _service;
 
     public PaymentsServiceTests()
     {
-        _service = new PaymentsService(_bank, _repository);
+        var services = new ServiceCollection();
+        services.AddMetrics();
+        _meterFactory = services.BuildServiceProvider().GetRequiredService<IMeterFactory>();
+        _service = new PaymentsService(_bank, _repository, new PaymentMetrics(_meterFactory));
     }
 
     private static PostPaymentRequest ARequest() => new()
@@ -165,4 +171,36 @@ public class PaymentsServiceTests
         new BankUnavailableException("bank down"),
         new InvalidBankRequestException("we sent a bad request")
     ];
+
+    [Theory]
+    [InlineData(true, "Authorized")]
+    [InlineData(false, "Declined")]
+    public async Task Records_a_processed_payment_tagged_by_adjudicated_status_and_currency(bool authorized, string expectedStatus)
+    {
+        BankResponds(authorized);
+        using var collector = new MetricCollector<long>(
+            _meterFactory, PaymentMetrics.MeterName, "payments.processed.count");
+
+        await _service.ProcessPaymentAsync(ARequest(), TestMerchantId);
+
+        var snapshot = collector.GetMeasurementSnapshot();
+        snapshot.Should().ContainSingle();
+        snapshot[0].Value.Should().Be(1);
+        snapshot[0].Tags["status"].Should().Be(expectedStatus);
+        snapshot[0].Tags["currency"].Should().Be("GBP");
+    }
+
+    [Fact]
+    public async Task Does_not_record_a_processed_payment_when_the_bank_fails()
+    {
+        _bank.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new BankUnavailableException("bank down"));
+        using var collector = new MetricCollector<long>(
+            _meterFactory, PaymentMetrics.MeterName, "payments.processed.count");
+
+        await _service.Invoking(s => s.ProcessPaymentAsync(ARequest(), TestMerchantId))
+            .Should().ThrowAsync<BankUnavailableException>();
+
+        collector.GetMeasurementSnapshot().Should().BeEmpty();
+    }
 }

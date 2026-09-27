@@ -1,5 +1,6 @@
 using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Exceptions;
+using PaymentGateway.Api.Metrics;
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Bank;
 using PaymentGateway.Api.Models.Requests;
@@ -16,11 +17,13 @@ public sealed class PaymentsService : IPaymentsService
 {
     private readonly IAcquiringBankClient _bankClient;
     private readonly IPaymentsRepository _repository;
+    private readonly PaymentMetrics _metrics;
 
-    public PaymentsService(IAcquiringBankClient bankClient, IPaymentsRepository repository)
+    public PaymentsService(IAcquiringBankClient bankClient, IPaymentsRepository repository, PaymentMetrics metrics)
     {
         _bankClient = bankClient;
         _repository = repository;
+        _metrics = metrics;
     }
 
     public async Task<Payment> ProcessPaymentAsync(PostPaymentRequest request, string merchantId, CancellationToken cancellationToken = default)
@@ -52,6 +55,10 @@ public sealed class PaymentsService : IPaymentsService
         };
 
         await _repository.AddAsync(payment, cancellationToken);
+
+        // Only bank-adjudicated outcomes reach here (a bank failure propagated above), so this
+        // counts Authorized/Declined with the validated currency (ADR-0007).
+        _metrics.RecordProcessed(payment.Status, payment.Currency);
 
         return payment;
     }

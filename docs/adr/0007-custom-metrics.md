@@ -38,3 +38,27 @@ Exposition: an OpenTelemetry Collector (or a direct Prometheus text-format `/met
 - Metrics are aggregate/statistical and contain no card data or PII by construction (tags are
   status/currency/acquirer/reason, never request content) — no additional masking concern beyond
   what's already established for logs.
+
+## Update — implemented
+
+This ADR is now built (previously "documented, not built"). Implementation notes:
+
+- `PaymentMetrics` (a singleton over an `IMeterFactory`-created `Meter` named
+  `PaymentGateway.Payments`) owns the four instruments. Call sites:
+  `payments.processed.count` from `PaymentsService` (Authorized/Declined) and `PaymentsController`
+  (Rejected); `payments.bank.call.duration` from `AcquiringBankClient` (timed around the HTTP call,
+  with `outcome` = success/timeout/error — a genuine caller cancellation is deliberately not
+  recorded); `payments.idempotency.replay.count` from `IdempotencyResourceFilter` on a cached
+  replay; `payments.rejected.reason.count` from `PaymentsController`, one increment per failed
+  FluentValidation rule.
+- Exposition is OpenTelemetry (`OpenTelemetry.Extensions.Hosting` +
+  `OpenTelemetry.Exporter.Prometheus.AspNetCore`) with a Prometheus scraping endpoint at
+  `GET /metrics`, wired in `AddObservability`. Instrumentation code is untouched by this choice —
+  swapping to OTLP/App Insights/Datadog changes only that extension method.
+- Two clarifications beyond the Decision text: the `acquirer` tag is the constant `"simulator"`
+  (single acquirer; ADR-0006's routing is out of scope), and the `currency` tag on a *rejected*
+  payment is normalised to a real 3-letter code or `"unknown"`, since a rejected request's currency
+  is unvalidated input and tagging it raw would let a probe inflate tag cardinality.
+- Non-goals still deferred: the `/metrics` endpoint is unauthenticated (restrict at the
+  ingress/network layer in production); no distributed exemplars/tracing correlation; no
+  RED/USE dashboards or alert rules shipped in this repo.

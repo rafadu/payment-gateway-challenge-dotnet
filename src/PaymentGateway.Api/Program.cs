@@ -20,6 +20,9 @@ if (builder.Configuration.GetValue<bool>("Swagger:Enabled", true))
     builder.Services.AddSwaggerGen();
 }
 
+// Custom business + bank-latency metrics instrumentation (ADR-0007).
+builder.Services.AddObservability();
+
 builder.Services.AddSingleton<IPaymentsRepository, MongoPaymentsRepository>();
 builder.Services.AddSingleton<IPaymentsService, PaymentsService>();
 
@@ -68,6 +71,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Prometheus scraping endpoint (ADR-0007) — exposes the custom meter at GET /metrics in the
+// OpenTelemetry-configured Prometheus text format. Unauthenticated, intended for scraping from a
+// trusted network; a production deployment would restrict it at the ingress/network layer.
+app.MapPrometheusScrapingEndpoint();
 
 app.Run();
 

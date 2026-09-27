@@ -1,21 +1,19 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
-
 using FluentAssertions;
-
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
-
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
-
 using PaymentGateway.Api.Controllers;
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Bank;
@@ -24,6 +22,7 @@ using PaymentGateway.Api.Models.Responses;
 using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Filters;
+using PaymentGateway.Api.Metrics;
 using PaymentGateway.Api.Persistence;
 
 namespace PaymentGateway.Api.Tests.Controllers;
@@ -193,6 +192,40 @@ public class PaymentsControllerTests
     }
 
     [Fact]
+    public async Task POST_records_rejection_metrics_when_the_request_fails_validation()
+    {
+        var (factory, client) = FactoryWith(new InMemoryPaymentsRepository());
+        Authorize(factory, client, MerchantA);
+
+        var meterFactory = factory.Services.GetRequiredService<IMeterFactory>();
+        using var processed = new MetricCollector<long>(meterFactory, PaymentMetrics.MeterName, "payments.processed.count");
+        using var reasons = new MetricCollector<long>(meterFactory, PaymentMetrics.MeterName, "payments.rejected.reason.count");
+
+        var response = await client.PostAsJsonAsync("/api/payments", new PostPaymentRequest
+        {
+            CardNumber = "123",                  // too short
+            ExpiryMonth = 1,
+            ExpiryYear = 2025,                   // past, since today is 2026-09-27
+            Currency = "GBP",
+            Amount = 100,
+            Cvv = "123"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // One Rejected processed count, tagged with the (valid-shaped) currency.
+        var processedSnapshot = processed.GetMeasurementSnapshot();
+        processedSnapshot.Should().ContainSingle();
+        processedSnapshot[0].Tags["status"].Should().Be("Rejected");
+        processedSnapshot[0].Tags["currency"].Should().Be("GBP");
+
+        // At least one failed rule was counted, each tagged by a (bounded) property name.
+        var reasonSnapshot = reasons.GetMeasurementSnapshot();
+        reasonSnapshot.Should().NotBeEmpty();
+        reasonSnapshot.Should().OnlyContain(m => !string.IsNullOrEmpty((string)m.Tags["reason"]!));
+    }
+
+    [Fact]
     public async Task POST_returns_201_with_the_payment_when_the_request_is_authorized_and_valid()
     {
         var (factory, client, _) = FactoryWithBankStub(new InMemoryPaymentsRepository(), bankAuthorized: true);
@@ -358,6 +391,10 @@ public class PaymentsControllerTests
         Authorize(factory, client, MerchantA);
         client.DefaultRequestHeaders.Add(IdempotencyResourceFilter.HeaderName, key);
 
+        using var replays = new MetricCollector<long>(
+            factory.Services.GetRequiredService<IMeterFactory>(),
+            PaymentMetrics.MeterName, "payments.idempotency.replay.count");
+
         var first = await client.PostAsJsonAsync("/api/payments", AValidRequest());
         var second = await client.PostAsJsonAsync("/api/payments", AValidRequest());
 
@@ -370,6 +407,9 @@ public class PaymentsControllerTests
 
         // Bank must have been hit exactly once — the safety property of ADR-0003.
         await bankStub.Received(1).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>());
+
+        // Exactly one replay was served (the second request), recorded to the metric (ADR-0007).
+        replays.GetMeasurementSnapshot().Sum(m => m.Value).Should().Be(1);
     }
 
     [Fact]

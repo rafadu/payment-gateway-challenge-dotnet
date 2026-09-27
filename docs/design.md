@@ -195,7 +195,7 @@ Nothing beyond the request/response flow, validation, persistence, bank integrat
 authentication, and idempotency described above is implemented in this codebase — this is a
 scoped exercise, not a production-ready service. That includes rate limiting (including on the
 token endpoint — see ADR-0010's Consequences), a circuit breaker around the bank client
-(ADR-0001), custom metrics, a Redis-backed credential cache (ADR-0011), merchant
+(ADR-0001), a Redis-backed credential cache (ADR-0011), merchant
 registration/credential-rotation/roles/refresh-tokens (ADR-0010), and full bank-side
 idempotency/reconciliation for ambiguous timeouts (ADR-0003).
 
@@ -207,6 +207,21 @@ audit middleware (ADR-0004, audit half; see ADR-0004's "Update — audit trail h
 implemented (Stage 11)" for the full contract). The full PAN and CVV are never persisted. What
 remains out of scope is the asynchronous audit pipeline, field-level encryption, and
 correlation IDs / trace context — see ADR-0004 for the explicit non-goals.
+
+### Update — custom metrics implemented (ADR-0007)
+
+The custom-metrics item from the out-of-scope list above is now implemented. The gateway
+instruments the four metrics ADR-0007 defines — `payments.processed.count` (tagged
+`status`/`currency`), `payments.bank.call.duration` (histogram, tagged `acquirer`/`outcome`),
+`payments.idempotency.replay.count`, and `payments.rejected.reason.count` (tagged by the failed
+validation rule) — via the vendor-neutral `System.Diagnostics.Metrics` API, exported over
+OpenTelemetry to a Prometheus scraping endpoint at `GET /metrics`. Two clarifications beyond the
+ADR's text: the `acquirer` tag is the constant `"simulator"` (single acquirer; ADR-0006's
+multi-acquirer routing stays out of scope), and a rejected request's `currency` tag is normalised
+to a real 3-letter code or `"unknown"` so attacker-controlled input can't inflate tag cardinality.
+The `/metrics` endpoint is unauthenticated, intended for scraping from a trusted network; a
+production deployment would restrict it at the ingress/network layer. See ADR-0007's "Update —
+implemented" section for the full contract.
 
 These aren't oversights — they're reasoned decisions, written up in detail in
 [`docs/production-architecture.md`](production-architecture.md) and ADR-0004 through ADR-0009 and

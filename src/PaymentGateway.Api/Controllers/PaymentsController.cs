@@ -1,12 +1,10 @@
 using System.Security.Claims;
-
 using FluentValidation;
-
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-
 using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Exceptions;
+using PaymentGateway.Api.Metrics;
 using PaymentGateway.Api.Middleware;
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Requests;
@@ -28,15 +26,18 @@ public class PaymentsController : ControllerBase
     private readonly IPaymentsService _paymentsService;
     private readonly IPaymentsRepository _paymentsRepository;
     private readonly IValidator<PostPaymentRequest> _validator;
+    private readonly PaymentMetrics _metrics;
 
     public PaymentsController(
         IPaymentsService paymentsService,
         IPaymentsRepository paymentsRepository,
-        IValidator<PostPaymentRequest> validator)
+        IValidator<PostPaymentRequest> validator,
+        PaymentMetrics metrics)
     {
         _paymentsService = paymentsService;
         _paymentsRepository = paymentsRepository;
         _validator = validator;
+        _metrics = metrics;
     }
 
     [HttpPost]
@@ -47,6 +48,12 @@ public class PaymentsController : ControllerBase
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
+            // Count the rejection and each failed rule (ADR-0007). Rule names are the bounded set of
+            // validated property names; currency is normalised to a real code or "unknown" so a
+            // probe sending garbage currencies can't inflate tag cardinality.
+            var failedRules = validation.Errors.Select(e => e.PropertyName).Distinct();
+            _metrics.RecordRejection(NormaliseCurrency(request.Currency), failedRules);
+
             var details = new ValidationProblemDetails(validation.ToDictionary())
             {
                 Status = StatusCodes.Status400BadRequest,
@@ -100,6 +107,13 @@ public class PaymentsController : ControllerBase
 
         return Ok(ToResponse(payment));
     }
+
+    // A rejected request's currency is unvalidated input, so it's only used as a metric tag when it
+    // looks like a real 3-letter ISO code; anything else becomes "unknown" to bound tag cardinality.
+    private static string NormaliseCurrency(string? currency) =>
+        currency is { Length: 3 } && currency.All(char.IsAsciiLetter)
+            ? currency.ToUpperInvariant()
+            : "unknown";
 
     private string CallerMerchantId() =>
         User.FindFirstValue("sub")
