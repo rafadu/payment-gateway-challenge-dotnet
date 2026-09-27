@@ -38,9 +38,16 @@ Mechanics:
   - **Existing key, different request hash** → `422 Unprocessable Entity`. This catches a
     merchant accidentally reusing a key across two different payments, rather than silently
     returning the wrong payment's result.
-- Implemented as an `IAsyncActionFilter` wrapping only the `CreatePayment` action (the GET
-  endpoint is already safe to repeat and needs no such protection), backed by an in-memory
-  `IIdempotencyStore`.
+- Implemented as an `IAsyncResourceFilter` registered globally on the MVC pipeline (a route-data
+  gate inside the filter limits it to `POST /api/payments`, so the GET endpoint is unaffected).
+  The resource-filter shape was chosen over the originally-planned `IAsyncActionFilter` because
+  response-body capture at the action-filter level interacts badly with
+  `CreatedAtActionResult`'s status-code set inside the result executor in `TestHost` — the
+  resource filter wraps the entire MVC pipeline (model binding, action filters, action method,
+  result executor), so the swap of `Response.Body` to a capture buffer is restored cleanly after
+  the result executor has written to it. The filter is registered via
+  `options.Filters.AddService<IdempotencyResourceFilter>()` and scoped per request, backed by an
+  in-memory `IIdempotencyStore`.
 
 ## Consequences
 - Protects the gateway-to-merchant boundary: a merchant that retries correctly (same key, same

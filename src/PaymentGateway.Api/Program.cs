@@ -9,13 +9,19 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+    options.Filters.AddService<IdempotencyResourceFilter>());
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddSingleton<IPaymentsRepository, PaymentsRepository>();
 builder.Services.AddSingleton<IPaymentsService, PaymentsService>();
+
+// In-memory idempotency-key store (ADR-0003). Singleton — it owns the dictionary of claims, no
+// per-request state.
+builder.Services.AddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>();
+builder.Services.AddScoped<IdempotencyResourceFilter>();
 
 // Acquiring bank client: typed HttpClient with bounded timeout (ADR-0001). Stage 7 wires it with
 // localhost defaults so the IPaymentsService registration above can be constructed; stage 9 reads

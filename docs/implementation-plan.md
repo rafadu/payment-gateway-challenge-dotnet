@@ -100,8 +100,11 @@ informal ports within the single existing project, not as physically separated m
   POST happy-path isn't re-tested here — covered in stage 4, re-verified end-to-end in stage 10.
 
 **8. Idempotency-Key support**
-- `IIdempotencyStore` (`ConcurrentDictionary`, `TryAdd` to atomically claim), `IAsyncActionFilter`
-  on the POST action only, claim/complete/release semantics, request-hash comparison (ADR-0003).
+- `IIdempotencyStore` (`ConcurrentDictionary`, `TryAdd` to atomically claim), `IAsyncResourceFilter`
+  registered globally with a route-data gate limiting it to `POST /api/payments`
+  (resource-filter shape was chosen over an action filter to avoid a body-swap interaction with
+  `CreatedAtActionResult` in `TestHost`; documented in `IdempotencyResourceFilter`'s XML
+  comment and ADR-0003), claim/complete/release semantics, request-hash comparison (ADR-0003).
 - **Done when**: store unit tests + filter-level `WebApplicationFactory` tests cover: in-progress
   duplicate → `409`; same key+hash completed → cached replay, bank client verified not called
   again; same key+different hash → `422`. Bank client faked, no docker needed.

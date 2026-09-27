@@ -14,6 +14,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 using PaymentGateway.Api.Controllers;
 using PaymentGateway.Api.Models;
@@ -54,7 +55,8 @@ public class PaymentsControllerTests
 
     // POST happy-path needs to bypass the real bank client (localhost:8080 is not running in
     // tests); substitute one that returns a deterministic Authorized/Declined answer.
-    private static (WebApplicationFactory<PaymentsController> factory, HttpClient client) FactoryWithBankStub(IPaymentsRepository repository, bool bankAuthorized)
+    private static (WebApplicationFactory<PaymentsController> factory, HttpClient client, IAcquiringBankClient bankStub)
+        FactoryWithBankStub(IPaymentsRepository repository, bool bankAuthorized)
     {
         var bankStub = Substitute.For<IAcquiringBankClient>();
         bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
@@ -71,7 +73,26 @@ public class PaymentsControllerTests
                 services.AddSingleton(bankStub);
             });
         });
-        return (factory, factory.CreateClient());
+        return (factory, factory.CreateClient(), bankStub);
+    }
+
+    // Variant of FactoryWithBankStub that lets the test decide how the bank responds per call —
+    // e.g. throw BankUnavailableException once to exercise the 503/release path.
+    private static (WebApplicationFactory<PaymentsController> factory, HttpClient client, IAcquiringBankClient bankStub)
+        FactoryWithBankBehavior(IPaymentsRepository repository, IAcquiringBankClient bankStub)
+    {
+        var factory = new WebApplicationFactory<PaymentsController>().WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                var existingRepo = services.Single(d => d.ServiceType == typeof(IPaymentsRepository));
+                services.Remove(existingRepo);
+                services.AddSingleton(repository);
+                services.RemoveAll<IAcquiringBankClient>();
+                services.AddSingleton(bankStub);
+            });
+        });
+        return (factory, factory.CreateClient(), bankStub);
     }
 
     private static void Authorize(WebApplicationFactory<PaymentsController> factory, HttpClient client, string merchantId, TimeSpan? lifetime = null) =>
@@ -158,7 +179,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task POST_returns_201_with_the_payment_when_the_request_is_authorized_and_valid()
     {
-        var (factory, client) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+        var (factory, client, _) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
         Authorize(factory, client, MerchantA);
 
         var response = await client.PostAsJsonAsync("/api/payments", AValidRequest());
@@ -180,7 +201,7 @@ public class PaymentsControllerTests
     [Fact]
     public async Task POST_returns_201_with_a_declined_payment_when_the_bank_declines()
     {
-        var (factory, client) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: false);
+        var (factory, client, _) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: false);
         Authorize(factory, client, MerchantA);
 
         var response = await client.PostAsJsonAsync("/api/payments", AValidRequest());
@@ -197,7 +218,7 @@ public class PaymentsControllerTests
         // returns 200. Cross-merchant 404 (above) is the negative half of the same ownership
         // property — together they prove MerchantId is taken from the JWT sub, not the body.
         var repository = new PaymentsRepository();
-        var (factory, client) = FactoryWithBankStub(repository, bankAuthorized: true);
+        var (factory, client, _) = FactoryWithBankStub(repository, bankAuthorized: true);
         Authorize(factory, client, MerchantA);
 
         var postResponse = await client.PostAsJsonAsync("/api/payments", AValidRequest());
@@ -291,6 +312,125 @@ public class PaymentsControllerTests
         Amount = 100,
         Cvv = "123"
     };
+
+    // --- Idempotency-Key (ADR-0003) -----------------------------------------
+
+    [Fact]
+    public async Task POST_without_an_Idempotency_Key_header_processes_each_request_independently()
+    {
+        // Absent header → opt-out: no claim, no caching. Two POSTs without a key produce two
+        // distinct payments with two distinct bank calls (regression guard for the "no behavior
+        // change for callers who don't opt in" promise in ADR-0003).
+        var (factory, client, bankStub) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+        Authorize(factory, client, MerchantA);
+
+        var first = await client.PostAsJsonAsync("/api/payments", AValidRequest());
+        var second = await client.PostAsJsonAsync("/api/payments", AValidRequest());
+
+        first.StatusCode.Should().Be(HttpStatusCode.Created);
+        second.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await first.Content.ReadFromJsonAsync<PaymentResponse>())!.Id
+            .Should().NotBe((await second.Content.ReadFromJsonAsync<PaymentResponse>())!.Id);
+        await bankStub.Received(2).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task POST_with_a_new_Idempotency_Key_caches_the_response_and_a_retry_replays_it_without_calling_the_bank_again()
+    {
+        var key = "merchant-attempt-1";
+        var (factory, client, bankStub) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+        Authorize(factory, client, MerchantA);
+        client.DefaultRequestHeaders.Add(IdempotencyResourceFilter.HeaderName, key);
+
+        var first = await client.PostAsJsonAsync("/api/payments", AValidRequest());
+        var second = await client.PostAsJsonAsync("/api/payments", AValidRequest());
+
+        first.StatusCode.Should().Be(HttpStatusCode.Created);
+        second.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // Same id on both responses → the second was replayed, not re-created.
+        (await first.Content.ReadFromJsonAsync<PaymentResponse>())!.Id
+            .Should().Be((await second.Content.ReadFromJsonAsync<PaymentResponse>())!.Id);
+
+        // Bank must have been hit exactly once — the safety property of ADR-0003.
+        await bankStub.Received(1).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task POST_with_an_existing_Idempotency_Key_but_a_different_body_returns_422_and_does_not_call_the_bank()
+    {
+        var key = "merchant-attempt-1";
+        var (factory, client, bankStub) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+        Authorize(factory, client, MerchantA);
+        client.DefaultRequestHeaders.Add(IdempotencyResourceFilter.HeaderName, key);
+
+        // First request: claim + cache.
+        await client.PostAsJsonAsync("/api/payments", AValidRequest());
+
+        // Second request: same key, different amount → hash mismatch → 422.
+        var differentBody = AValidRequest();
+        differentBody.Amount = 999;
+        client.DefaultRequestHeaders.Remove(IdempotencyResourceFilter.HeaderName);
+        client.DefaultRequestHeaders.Add(IdempotencyResourceFilter.HeaderName, key);
+        var response = await client.PostAsJsonAsync("/api/payments", differentBody);
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        await bankStub.Received(1).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task POST_with_an_in_progress_Idempotency_Key_returns_409_and_does_not_call_the_bank()
+    {
+        var key = "in-flight-attempt";
+        var (factory, client, bankStub) = FactoryWithBankStub(new PaymentsRepository(), bankAuthorized: true);
+
+        // Send the body as raw bytes so the test controls the exact wire format — the filter
+        // hashes the raw POST body, so the test's hash has to match the bytes the client sends.
+        var bodyJson = System.Text.Json.JsonSerializer.Serialize(AValidRequest());
+        var hash = IdempotencyResourceFilter.ComputeRequestHash(bodyJson);
+
+        // Pre-seed: an in-progress claim with the hash the upcoming request will produce. This
+        // is what a concurrent duplicate request looks like from the filter's point of view.
+        factory.Services.GetRequiredService<IIdempotencyStore>()
+            .TryClaim(key, hash)
+            .Outcome.Should().Be(IdempotencyClaimOutcome.NewClaim);
+
+        Authorize(factory, client, MerchantA);
+        client.DefaultRequestHeaders.Add(IdempotencyResourceFilter.HeaderName, key);
+
+        var response = await client.PostAsync("/api/payments",
+            new StringContent(bodyJson, Encoding.UTF8, "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        await bankStub.DidNotReceive().ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task POST_releases_the_claim_on_503_so_a_subsequent_request_with_the_same_key_proceeds_normally()
+    {
+        var key = "transient-failure";
+        var repository = new PaymentsRepository();
+
+        // Bank throws on every call → controller returns 503. Filter must release the claim so a
+        // merchant retry (after the bank recovers) gets through to the bank again, instead of
+        // being replayed as a 503 forever.
+        var bankStub = Substitute.For<IAcquiringBankClient>();
+        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new BankUnavailableException("bank down"));
+        var (factory, client, _) = FactoryWithBankBehavior(repository, bankStub);
+        Authorize(factory, client, MerchantA);
+        client.DefaultRequestHeaders.Add(IdempotencyResourceFilter.HeaderName, key);
+
+        var first = await client.PostAsJsonAsync("/api/payments", AValidRequest());
+        first.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+
+        // Simulate the bank recovering: swap the stub to a successful one in the store.
+        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new BankPaymentResponse { Authorized = true, AuthorizationCode = "auth-code" });
+
+        var second = await client.PostAsJsonAsync("/api/payments", AValidRequest());
+        second.StatusCode.Should().Be(HttpStatusCode.Created);
+    }
 }
 
 internal static class TestJwt
