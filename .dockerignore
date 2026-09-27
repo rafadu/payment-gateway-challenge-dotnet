@@ -1,0 +1,26 @@
+# Don't ship build artefacts to the docker daemon — only src/ is needed to compile.
+bin/
+obj/
+out/
+
+# Don't ship git history, IDE state, or test artefacts.
+.git/
+.gitignore
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Don't ship docs/samples — Dockerfile reads only src/PaymentGateway.Api/.
+docs/
+test/
+imposters/
+mongo-init/
+docker-compose.yml
+*.md
+*.yml
+*.yaml
+*.http
+.editorconfig
+.ai-jail
