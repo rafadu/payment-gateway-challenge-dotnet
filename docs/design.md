@@ -223,7 +223,7 @@ validation rule) — via the vendor-neutral `System.Diagnostics.Metrics` API, ex
 OpenTelemetry to a Prometheus scraping endpoint at `GET /metrics`. Two clarifications beyond the
 ADR's text: the `acquirer` tag is the constant `"simulator"` (single acquirer; ADR-0006's
 multi-acquirer routing stays out of scope), and a rejected request's `currency` tag is normalised
-to a real 3-letter code or `"unknown"` so attacker-controlled input can't inflate tag cardinality.
+to a real 3-letter code or `"UNKNOWN"` so attacker-controlled input can't inflate tag cardinality.
 The `/metrics` endpoint is unauthenticated, intended for scraping from a trusted network; a
 production deployment would restrict it at the ingress/network layer. See ADR-0007's "Update —
 implemented" section for the full contract.

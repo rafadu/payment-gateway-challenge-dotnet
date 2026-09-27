@@ -19,6 +19,11 @@ namespace PaymentGateway.Api.Middleware;
 /// </summary>
 public sealed class AuditMiddleware
 {
+    // Non-business infrastructure endpoints that must not enter the forensic audit trail: /metrics
+    // is scraped continuously (ADR-0004/R-001), and health/swagger carry no merchant activity.
+    // Auditing them would pollute the trail and drive constant datastore writes.
+    private static readonly string[] UnauditedPrefixes = ["/metrics", "/health", "/swagger"];
+
     private readonly RequestDelegate _next;
     private readonly IAuditStore _store;
 
@@ -30,6 +35,12 @@ public sealed class AuditMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        if (IsUnaudited(context.Request.Path))
+        {
+            await _next(context);
+            return;
+        }
+
         // Allow the body to be read both here AND by the model binder later in the pipeline.
         context.Request.EnableBuffering();
         var stopwatch = Stopwatch.StartNew();
@@ -63,6 +74,9 @@ public sealed class AuditMiddleware
             // Swallowed intentionally — audit is a forensic concern, not a transactional one.
         }
     }
+
+    private static bool IsUnaudited(PathString path) =>
+        UnauditedPrefixes.Any(prefix => path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase));
 
     private static async Task<IReadOnlyDictionary<string, object?>?> BuildMaskedSummaryAsync(HttpRequest request)
     {

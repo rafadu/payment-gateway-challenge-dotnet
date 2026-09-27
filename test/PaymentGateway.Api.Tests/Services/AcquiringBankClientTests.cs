@@ -243,6 +243,23 @@ public class AcquiringBankClientTests
     }
 
     [Fact]
+    public async Task Records_bank_call_duration_with_an_invalid_request_outcome_on_a_bank_400()
+    {
+        // A bank 400 is a gateway-side defect, not an availability failure (ADR-0007/R-002), so it
+        // must not share the 'error' bucket that feeds circuit-breaker/availability sizing.
+        using var collector = BankCallCollector();
+        var client = ClientFor(RespondsWith(HttpStatusCode.BadRequest,
+            """{ "error_message": "Not all required properties were sent in the request" }"""));
+
+        await client.Invoking(c => c.ProcessPaymentAsync(ARequest()))
+            .Should().ThrowAsync<InvalidBankRequestException>();
+
+        var snapshot = collector.GetMeasurementSnapshot();
+        snapshot.Should().ContainSingle();
+        snapshot[0].Tags["outcome"].Should().Be("invalidrequest");
+    }
+
+    [Fact]
     public async Task Does_not_record_a_bank_call_for_a_caller_initiated_cancellation()
     {
         // A genuine caller cancellation is not a bank latency/availability event — it must not

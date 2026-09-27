@@ -112,7 +112,7 @@ public class PaymentsController : ControllerBase
     private static string NormaliseCurrency(string? currency) =>
         currency is { Length: 3 } && currency.All(char.IsAsciiLetter)
             ? currency.ToUpperInvariant()
-            : "unknown";
+            : "UNKNOWN";
 
     private string CallerMerchantId() =>
         User.FindFirstValue("sub")

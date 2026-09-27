@@ -237,4 +237,19 @@ public class AuditMiddlewareTests
         record.RequestSummary.Should().BeNull();
         record.Outcome.Should().Be("NotFound");
     }
+
+    [Fact]
+    public async Task Infrastructure_endpoints_like_metrics_are_not_audited()
+    {
+        // R-001: /metrics is scraped continuously; auditing every scrape pollutes the forensic
+        // trail (ADR-0004) and drives constant Mongo writes. It must be skipped by the middleware.
+        var store = new InMemoryAuditStore();
+        using var factory = FactoryWith(store);
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/metrics");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        store.Records.Should().BeEmpty();
+    }
 }

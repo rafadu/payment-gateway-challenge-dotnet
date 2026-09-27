@@ -115,10 +115,15 @@ public class ArchitectureTests
     // --- Web depends on ports, not on concrete adapters or each other --------
 
     [Fact]
-    public void Controllers_depend_on_abstractions_not_on_concrete_adapters()
+    public void Web_components_depend_on_abstractions_not_on_concrete_adapters()
     {
+        // R-003: applies to the whole web tier, not just controllers — a future middleware or filter
+        // taking a direct dependency on a concrete Services/Persistence/Clients type would violate
+        // the same "depend on ports" invariant and must fail here too.
         Passes(Types.InAssembly(Api)
             .That().ResideInNamespace(Controllers)
+            .Or().ResideInNamespace(Middleware)
+            .Or().ResideInNamespace(Filters)
             .ShouldNot().HaveDependencyOnAny(Services, Persistence, Clients)
             .GetResult());
     }
@@ -191,14 +196,21 @@ public class ArchitectureTests
         // wire DTO — never on a domain model, response, audit record, or anything persisted.
         // (CardNumberLastFour is deliberately not matched — the last four are allowed.)
         var allowed = new[] { typeof(PostPaymentRequest), typeof(BankPaymentRequest) };
-        var sensitiveNames = new[] { "CardNumber", "Cvv", "Pan" };
+        // R-005: exact (case-insensitive) names, widened to differently-spelled PAN carriers — but
+        // NOT substring matching, so the allowed CardNumberLastFour is never flagged.
+        var sensitiveNames = new[]
+        {
+            "CardNumber", "Cvv", "Pan", "PrimaryAccountNumber", "AccountNumber", "CardNo", "FullPan"
+        };
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
 
+        // Scan public properties AND public fields (R-005: fields were previously unscanned).
         var offenders = Api.GetTypes()
             .Where(t => !allowed.Contains(t))
-            .SelectMany(t => t
-                .GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                .Where(p => sensitiveNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
-                .Select(p => $"{t.FullName}.{p.Name}"))
+            .SelectMany(t => t.GetProperties(flags).Select(m => m.Name)
+                .Concat(t.GetFields(flags).Select(m => m.Name))
+                .Where(name => sensitiveNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+                .Select(name => $"{t.FullName}.{name}"))
             .ToArray();
 
         offenders.Should().BeEmpty(

@@ -48,7 +48,9 @@ public sealed class AcquiringBankClient : IAcquiringBankClient
             // error, not the bank being unavailable (a retry would never succeed).
             if (response.StatusCode == HttpStatusCode.BadRequest)
             {
-                Record(BankCallOutcome.Error);
+                // A gateway-side defect, not a bank-availability failure — its own outcome bucket so
+                // it never inflates the availability/failure-rate signal (ADR-0007, R-002).
+                Record(BankCallOutcome.InvalidRequest);
                 throw new InvalidBankRequestException(
                     "The acquiring bank rejected the request as invalid (400 Bad Request).");
             }

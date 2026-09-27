@@ -47,18 +47,31 @@ This ADR is now built (previously "documented, not built"). Implementation notes
   `PaymentGateway.Payments`) owns the four instruments. Call sites:
   `payments.processed.count` from `PaymentsService` (Authorized/Declined) and `PaymentsController`
   (Rejected); `payments.bank.call.duration` from `AcquiringBankClient` (timed around the HTTP call,
-  with `outcome` = success/timeout/error — a genuine caller cancellation is deliberately not
-  recorded); `payments.idempotency.replay.count` from `IdempotencyResourceFilter` on a cached
-  replay; `payments.rejected.reason.count` from `PaymentsController`, one increment per failed
-  FluentValidation rule.
+  with `outcome` = success/timeout/error/**invalidrequest** — a genuine caller cancellation is
+  deliberately not recorded); `payments.idempotency.replay.count` from `IdempotencyResourceFilter`
+  on a cached replay; `payments.rejected.reason.count` from `PaymentsController`, one increment per
+  failed FluentValidation rule.
+- **Bank-`400`s get their own `outcome=invalidrequest` value** rather than sharing `error` with
+  `503`/timeout/unreachable/unreadable failures. A `400` is a gateway-side integration defect, not a
+  bank-availability problem, so it must not inflate the failure-rate signal ADR-0001 would size a
+  circuit breaker against. Availability/error-rate dashboards should therefore aggregate over
+  `outcome in (error, timeout)`, not `outcome != success`.
 - Exposition is OpenTelemetry (`OpenTelemetry.Extensions.Hosting` +
   `OpenTelemetry.Exporter.Prometheus.AspNetCore`) with a Prometheus scraping endpoint at
   `GET /metrics`, wired in `AddObservability`. Instrumentation code is untouched by this choice —
-  swapping to OTLP/App Insights/Datadog changes only that extension method.
+  swapping to OTLP/App Insights/Datadog changes only that extension method. The `/metrics` (and
+  `/health`, `/swagger`) paths are **excluded from the audit trail** by `AuditMiddleware`, so
+  continuous scraping does not pollute the ADR-0004 forensic log or drive constant datastore writes.
 - Two clarifications beyond the Decision text: the `acquirer` tag is the constant `"simulator"`
   (single acquirer; ADR-0006's routing is out of scope), and the `currency` tag on a *rejected*
-  payment is normalised to a real 3-letter code or `"unknown"`, since a rejected request's currency
+  payment is normalised to a real 3-letter code or `"UNKNOWN"`, since a rejected request's currency
   is unvalidated input and tagging it raw would let a probe inflate tag cardinality.
-- Non-goals still deferred: the `/metrics` endpoint is unauthenticated (restrict at the
-  ingress/network layer in production); no distributed exemplars/tracing correlation; no
-  RED/USE dashboards or alert rules shipped in this repo.
+- **Aggregation note:** `payments.processed.count` includes `status=Rejected` (validation failures
+  that never reached the bank), matching the Decision's status-tag set. A throughput/conversion
+  dashboard should filter `status != "Rejected"`, since a rejected payment was not adjudicated.
+- Non-goals still deferred: the `/metrics` endpoint is unauthenticated — the mitigation
+  (ingress/`NetworkPolicy` restriction, or binding the exporter to a separate management port) lives
+  in deployment config outside this repo and must be confirmed present before exposure; no
+  distributed exemplars/tracing correlation; no RED/USE dashboards or alert rules shipped in this
+  repo. The PCI card-field arch test (ADR-0008) is a conservative name-based tripwire over public
+  properties and fields, not a data-flow guarantee.
