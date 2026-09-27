@@ -49,8 +49,10 @@ hash, and is never persisted or logged.
 - JWT: HMAC-signed with a key from configuration (`Jwt:SigningKey`), `sub` claim = `merchantId`,
   15-minute expiry, no refresh-token flow — a merchant just re-authenticates when it expires.
 
-**`ICredentialCache`**: in-memory, `ConcurrentDictionary`-backed (same pattern as
-`IPaymentsRepository` and `IIdempotencyStore`), read-through in front of MongoDB.
+**`ICredentialCache`**: in-memory, backed by `IMemoryCache`, read-through in front of MongoDB.
+(`IMemoryCache` rather than a hand-rolled `ConcurrentDictionary` so expiration and entry eviction
+are handled by the framework, and so the swap to `IDistributedCache`/Redis in ADR-0011 stays a
+same-shaped implementation change behind this interface.)
 - **TTL: 4 hours, absolute from cache-write time, not sliding on access.** Absolute (rather than
   refreshed on every read) so a cached entry can't be kept alive indefinitely by sustained
   traffic — it always falls back to MongoDB at least once every 4 hours, which matters if a

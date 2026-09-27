@@ -1,3 +1,4 @@
+using PaymentGateway.Api.Configuration;
 using PaymentGateway.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,6 +11,10 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddSingleton<IPaymentsRepository, PaymentsRepository>();
+
+// MongoDB-backed merchant credentials behind an in-memory read-through cache (ADR-0010).
+builder.Services.AddMongoDb(builder.Configuration);
+builder.Services.AddCredentialCache(builder.Configuration);
 
 var app = builder.Build();
 
