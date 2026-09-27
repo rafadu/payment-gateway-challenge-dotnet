@@ -101,12 +101,27 @@ public class AcquiringBankClientTests
     }
 
     [Theory]
-    [InlineData("null")]           // 200 with a literal null body
-    [InlineData("{ not json ")]    // 200 with a malformed body
-    [InlineData("<html>oops</html>")] // 200 with a non-JSON body (e.g. a proxy error page)
+    [InlineData("null")]              // 200 with a literal null body
+    [InlineData("{ not json ")]       // 200 with malformed JSON
+    [InlineData("<html>oops</html>")] // 200 whose body isn't JSON at all (still sent as application/json)
     public async Task Throws_BankUnavailable_when_a_200_body_cannot_be_interpreted(string body)
     {
         var client = ClientFor(RespondsWith(HttpStatusCode.OK, body));
+
+        await client.Invoking(c => c.ProcessPaymentAsync(ARequest()))
+            .Should().ThrowAsync<BankUnavailableException>();
+    }
+
+    [Fact]
+    public async Task Throws_BankUnavailable_when_a_200_has_a_non_json_content_type()
+    {
+        // A real proxy/gateway error page arrives as text/html; ReadFromJsonAsync throws
+        // NotSupportedException for the wrong content type — a distinct branch from malformed JSON.
+        var handler = new StubHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<html>oops</html>", Encoding.UTF8, "text/html")
+        }));
+        var client = ClientFor(handler);
 
         await client.Invoking(c => c.ProcessPaymentAsync(ARequest()))
             .Should().ThrowAsync<BankUnavailableException>();
