@@ -1,3 +1,4 @@
+using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Bank;
 
 namespace PaymentGateway.Api.Abstractions;

@@ -9,7 +9,7 @@ namespace PaymentGateway.Api.Persistence;
 /// <summary>
 /// MongoDB-backed <see cref="IAuditStore"/>. Writes one document per audit record to the
 /// <c>audit_records</c> collection in the gateway database (same database as <c>merchants</c>,
-/// per <see cref="MongoServiceCollectionExtensions"/>). Documents are BSON, queryable via
+/// per <c>MongoServiceCollectionExtensions</c>). Documents are BSON, queryable via
 /// <c>mongosh</c> — e.g. <c>db.audit_records.find({ merchantId: "..." }).sort({ timestamp: -1 })</c>.
 /// </summary>
 public sealed class MongoAuditStore : IAuditStore

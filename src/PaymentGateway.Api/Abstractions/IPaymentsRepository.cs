@@ -3,9 +3,8 @@ using PaymentGateway.Api.Models;
 namespace PaymentGateway.Api.Abstractions;
 
 /// <summary>
-/// Stores and retrieves bank-adjudicated payments. The MongoDB-backed implementation
-/// (<see cref="MongoPaymentsRepository"/>) is the production registration; the in-memory
-/// <see cref="InMemoryPaymentsRepository"/> exists as a unit-test fixture. Both are
+/// Stores and retrieves bank-adjudicated payments. The MongoDB-backed implementation is the
+/// production registration; an in-memory implementation exists as a unit-test fixture. Both are
 /// registered as singletons and safe under concurrent access.
 /// </summary>
 public interface IPaymentsRepository

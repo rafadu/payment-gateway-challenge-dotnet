@@ -9,7 +9,7 @@ namespace PaymentGateway.Api.Persistence;
 
 /// <summary>
 /// MongoDB-backed <see cref="ICredentialStore"/> over the <c>merchants</c> collection seeded at
-/// container startup (ADR-0010). This is the read-through source behind <see cref="CredentialCache"/>;
+/// container startup (ADR-0010). This is the read-through source behind the <c>CredentialCache</c>;
 /// it is exercised by the integration suite and the manual docker check, not by unit tests (mocking
 /// the Mongo driver would test the mock, not Mongo).
 /// </summary>
