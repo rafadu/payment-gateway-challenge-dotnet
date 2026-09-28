@@ -38,7 +38,7 @@ public sealed class MongoPaymentsRepository : IPaymentsRepository
     public async Task<Payment?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var document = await _collection
-            .Find(Builders<PaymentDocument>.Filter.Eq("_id", id.ToString()))
+            .Find(Builders<PaymentDocument>.Filter.Eq(d => d.Id, id.ToString()))
             .FirstOrDefaultAsync(cancellationToken);
         return document?.ToDomain();
     }

@@ -11,9 +11,10 @@ namespace PaymentGateway.Api.Configuration;
 /// <see cref="AuditOutcomeDecorator"/> (stamps the audit-outcome side-channel on the active
 /// <c>HttpContext</c>). Outer decorators run first; the core runs last.
 ///
-/// Each link is also registered as itself so a future test (or alternative composition) can
-/// construct a partial chain without the full DI graph — the public IPaymentsHandler binding
-/// is the only one the controller resolves.
+/// The <see cref="ProcessPaymentHandler"/> core is registered on its own so the factory can resolve
+/// it (and its transient typed-HttpClient dependency) from DI; the decorators are composed around it
+/// by the factory. The public <see cref="IPaymentsHandler"/> binding is the only one the controller
+/// resolves.
 /// </summary>
 public static class PaymentsHandlerServiceCollectionExtensions
 {
@@ -24,8 +25,6 @@ public static class PaymentsHandlerServiceCollectionExtensions
         services.AddHttpContextAccessor();
 
         services.AddScoped<ProcessPaymentHandler>();
-        services.AddScoped<MetricsDecorator>();
-        services.AddScoped<AuditOutcomeDecorator>();
 
         services.AddScoped<IPaymentsHandler>(sp =>
         {

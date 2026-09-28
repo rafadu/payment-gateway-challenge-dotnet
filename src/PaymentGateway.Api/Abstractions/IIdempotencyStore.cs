@@ -32,11 +32,13 @@ public enum IdempotencyClaimOutcome
 public sealed record IdempotencyClaim(IdempotencyClaimOutcome Outcome, CachedResponse? CachedResponse);
 
 /// <summary>
-/// In-memory store for idempotency-key claims. Concurrent-safe: a key is claimed atomically
-/// (<c>ConcurrentDictionary.TryAdd</c>), so two simultaneous identical requests race at exactly
-/// one boundary and the loser sees <see cref="IdempotencyClaimOutcome.InProgress"/>. A production
-/// system would back this with a TTL (~24 h) and a persistent store — out of scope for this
-/// exercise (ADR-0003).
+/// Claim-based store backing the <c>Idempotency-Key</c> contract (ADR-0003): a key is claimed for
+/// the duration of a request, then either completed (its response cached for replay) or released
+/// (freed for a retry). Implementations must make <see cref="TryClaim"/> atomic, so two simultaneous
+/// identical requests resolve to exactly one <see cref="IdempotencyClaimOutcome.NewClaim"/> and one
+/// <see cref="IdempotencyClaimOutcome.InProgress"/>. A production implementation would add a TTL
+/// (~24 h) and a persistent/distributed store; the current one is in-memory (see
+/// <c>InMemoryIdempotencyStore</c>).
 /// </summary>
 public interface IIdempotencyStore
 {

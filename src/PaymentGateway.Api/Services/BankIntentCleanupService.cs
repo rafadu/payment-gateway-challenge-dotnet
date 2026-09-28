@@ -7,14 +7,21 @@ namespace PaymentGateway.Api.Services;
 
 /// <summary>
 /// Hosted service that periodically deletes <see cref="BankIntentsCleanupOptions.RetentionSeconds"/>-old
-/// <see cref="BankIntentStatus.Reconciled"/> intents from the <c>bank_intents</c> collection.
-/// Without this, Reconciled intents pile up forever — they're terminal from the reconciler's
-/// perspective (no further action), but the collection's growth has no upper bound.
-///
-/// <para>Reconciles via <see cref="IBankIntentsRepository.DeleteReconciledOlderThanAsync"/>, which
-/// uses the existing (Status, UpdatedAt) compound index — the delete is a bounded index range
-/// scan, not a collection scan. Pending / Authorized / Declined / Cancelled intents are
-/// deliberately untouched (cleanup is purely about bounding growth, not about reconciler state).</para>
+/// intents from the <c>bank_intents</c> collection to bound its growth. Two categories are removed,
+/// both past the same retention window:
+/// <list type="bullet">
+///   <item><see cref="BankIntentStatus.Reconciled"/> (keyed on <c>UpdatedAt</c>) — terminal from the
+///     reconciler's perspective, no further use once the Payment is materialized and the
+///     Idempotency-Key replay window has passed.</item>
+///   <item><see cref="BankIntentStatus.Pending"/> (keyed on <c>CreatedAt</c>) — requests the bank
+///     failed (or the gateway crashed before) that the merchant/ops never resolved; dead weight after
+///     the window. See <see cref="IBankIntentsRepository.DeletePendingOlderThanAsync"/> for why
+///     <c>CreatedAt</c>, not <c>UpdatedAt</c>, is the age key here.</item>
+/// </list>
+/// <see cref="BankIntentStatus.Authorized"/> / <see cref="BankIntentStatus.Declined"/> are
+/// deliberately untouched — an aged intent in those states means the reconciler itself is broken, so
+/// the row is a signal for ops, not dead weight. Both deletes use the existing (Status, UpdatedAt)
+/// compound index, so they're bounded index range scans rather than collection scans.
 ///
 /// <para>Errors during a pass are logged and the loop continues — a single bad pass mustn't block
 /// future passes (same rationale as <see cref="BankIntentReconciler"/>).</para>
@@ -43,11 +50,10 @@ public sealed class BankIntentCleanupService : BackgroundService
             "Bank intent cleanup started (poll={PollInterval}s, retention={RetentionDays} days).",
             _options.Value.PollIntervalSeconds, retention.TotalDays);
 
-        // Sleep first, then run cleanup. This matters at startup: firing a DeleteMany on Mongo
-        // immediately would contend with the integration fixture's probe and with parallel
-        // test-host startups. The retention is days/weeks and the poll is hours, so deferring
-        // the first pass by one poll interval doesn't change which intents get deleted — any
-        // Reconciled intent that's eligible was eligible yesterday and will be eligible tomorrow.
+        // Sleep first, then run cleanup. Deferring the first pass avoids firing a DeleteMany during
+        // host warm-up (a cold-start burst of work against Mongo). The retention is days/weeks and
+        // the poll is hours, so deferring by one poll interval doesn't change which intents get
+        // deleted — any intent that's eligible was eligible yesterday and will be eligible tomorrow.
         while (!stoppingToken.IsCancellationRequested)
         {
             try

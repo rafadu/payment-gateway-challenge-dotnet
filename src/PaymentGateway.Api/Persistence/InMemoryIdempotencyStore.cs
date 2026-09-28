@@ -6,8 +6,11 @@ namespace PaymentGateway.Api.Persistence;
 
 /// <summary>
 /// <see cref="ConcurrentDictionary{TKey,TValue}"/>-backed <see cref="IIdempotencyStore"/>.
-/// In-memory only; cleared on process restart (ADR-0003). Singleton — it owns no per-request
-/// state, so a single instance serves all requests.
+/// In-memory only; cleared on process restart (ADR-0003). Singleton — it owns the claims
+/// dictionary and no per-request state, so a single instance serves all requests. A key is claimed
+/// atomically via <see cref="ConcurrentDictionary{TKey,TValue}.TryAdd"/>, so two simultaneous
+/// identical requests race at exactly one boundary and the loser sees
+/// <see cref="IdempotencyClaimOutcome.InProgress"/>.
 /// </summary>
 public sealed class InMemoryIdempotencyStore : IIdempotencyStore
 {

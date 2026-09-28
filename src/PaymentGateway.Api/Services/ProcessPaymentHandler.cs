@@ -16,7 +16,7 @@ namespace PaymentGateway.Api.Services;
 /// one via DI.
 ///
 /// <para><b>Outbox flow (ADR-0013 / §3.2 of
-/// <c>docs/post-payment-orchestration-improments.md</c>):</b> four writes — the
+/// <c>docs/post-payment-orchestration-improvements.md</c>):</b> four writes — the
 /// <see cref="BankIntent"/> is inserted before the bank is called (write #1) so a gateway crash
 /// between the bank call and the <see cref="Payment"/> persist leaves a durable record the
 /// reconciler can pick up. The remaining three writes record the bank's adjudication (write #2),

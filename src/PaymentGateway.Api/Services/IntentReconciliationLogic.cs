@@ -107,9 +107,11 @@ public sealed class IntentReconciliationLogic
                 return true;
 
             case BankIntentStatus.Pending:
-                // R-7: don't retry the bank call here. Without bank-side idempotency (ADR-0012),
-                // retrying an unknown bank state risks double-charging. Bump Attempts so ops can
-                // see how long a Pending has been stuck; leave the status alone.
+                // R-7: never retry the bank call from the reconciler. This holds even with ADR-0012's
+                // bank-side idempotency: the intent persists neither the Idempotency-Key nor the full
+                // PAN (the snapshot is last-four only, by PCI design), so there's no key to replay and
+                // no request body to safely resend — a fresh call could double-charge. Bump Attempts so
+                // ops can see how long a Pending has been stuck; leave the status alone.
                 await _intents.IncrementAttemptsAsync(intent.Id, _clock.GetUtcNow().UtcDateTime, cancellationToken);
                 return false;
 
