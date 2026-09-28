@@ -65,4 +65,28 @@ public class Payment
             Currency = request.Currency!,
             Amount = request.Amount
         };
+
+    /// <summary>
+    /// Outbox overload: rebuilds a <see cref="Payment"/> from a sanitized
+    /// <see cref="BankIntentRequest"/> snapshot plus the stored <see cref="BankPaymentResponse"/>.
+    /// Used by the reconciler (B3) when materializing a Payment the handler didn't get to
+    /// finish writing. The id is required (it's the intent's id — sharing it with the original
+    /// failed-write attempt is the design that keeps the cached Idempotency-Key replay
+    /// consistent with the sweeper-materialized Payment).
+    /// </summary>
+    public static Payment FromBankOutcome(
+        string merchantId,
+        BankIntentRequest snapshot,
+        BankPaymentResponse bankResponse,
+        Guid id) => new()
+        {
+            Id = id,
+            MerchantId = merchantId,
+            Status = bankResponse.Authorized ? PaymentStatus.Authorized : PaymentStatus.Declined,
+            CardNumberLastFour = snapshot.CardLastFour,
+            ExpiryMonth = snapshot.ExpiryMonth,
+            ExpiryYear = snapshot.ExpiryYear,
+            Currency = snapshot.Currency,
+            Amount = snapshot.Amount
+        };
 }
