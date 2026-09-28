@@ -15,8 +15,21 @@
             },
             "stubs": [{
                     "predicates": [{
-						"and": [
-							{ "equals": { "method": "POST", "path": "/payments" } }, 
+                            "and": [
+                                { "equals": { "method": "POST", "path": "/payments" } },
+                                { "exists": { "headers": { "Idempotency-Key": true } } },
+                                { "inject": "function(config) { var h = (config.request && config.request.headers) || {}; var k = h['idempotency-key'] || h['Idempotency-Key']; var c = (config.state && config.state.idemCache) || {}; return !!c[k]; }" }
+                            ]
+                        }
+                    ],
+                    "responses": [{
+                            "inject": "function(config) { var h = (config.request && config.request.headers) || {}; var k = h['idempotency-key'] || h['Idempotency-Key']; var c = (config.state && config.state.idemCache) || {}; var cached = c[k]; return { statusCode: cached.statusCode, headers: { 'Content-Type': 'application/json' }, body: cached.body }; }"
+                        }
+                    ]
+                }, {
+                    "predicates": [{
+                        "and": [
+							{ "equals": { "method": "POST", "path": "/payments" } },
 							{ "or": [
 								{ "exists": {"body": {"card_number": false}} },
 								{ "exists": {"body": {"expiry_date": false}} },
@@ -35,7 +48,7 @@
                 }, {
                     "predicates": [{
                             "and": [
-								{ "equals": { "method": "POST", "path": "/payments" } }, 
+								{ "equals": { "method": "POST", "path": "/payments" } },
 								{ "or": [
 									{ "endsWith": { "body": { "card_number": "1" } } },
 									{ "endsWith": { "body": { "card_number": "3" } } },
@@ -47,20 +60,13 @@
                         }
                     ],
                     "responses": [{
-                            "is": {
-                                "statusCode": 200,
-                                "body": { "authorized": true, "authorization_code": "${auth_code}" }
-                            },
-                            "behaviors": [{
-                                    "decorate": "(config) => { function newGuid() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) { var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8); return v.toString(16); }) }config.response.body.authorization_code = config.response.body.authorization_code.replace('${auth_code}', newGuid()); }"
-                                }
-                            ]
+                            "inject": "function(config) { function newGuid() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) { var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8); return v.toString(16); }) } var authCode = newGuid(); var body = { authorized: true, authorization_code: authCode }; var h = (config.request && config.request.headers) || {}; var k = h['idempotency-key'] || h['Idempotency-Key']; if (k) { if (!config.state.idemCache) config.state.idemCache = {}; config.state.idemCache[k] = { statusCode: 200, body: body }; } return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: body }; }"
                         }
                     ]
                 }, {
                     "predicates": [{
                             "and": [
-								{ "equals": { "method": "POST", "path": "/payments" } }, 
+								{ "equals": { "method": "POST", "path": "/payments" } },
 								{ "or": [
 									{ "endsWith": { "body": { "card_number": "2" } } },
 									{ "endsWith": { "body": { "card_number": "4" } } },
@@ -71,16 +77,12 @@
                         }
                     ],
                     "responses": [{
-                            "is": {
-                                "statusCode": 200,
-                                "body": { "authorized": false, "authorization_code": "" }
-                            }
-                        }
-                    ]
+                            "inject": "function(config) { var body = { authorized: false, authorization_code: '' }; var h = (config.request && config.request.headers) || {}; var k = h['idempotency-key'] || h['Idempotency-Key']; if (k) { if (!config.state.idemCache) config.state.idemCache = {}; config.state.idemCache[k] = { statusCode: 200, body: body }; } return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: body }; }"
+                        }]
                 }, {
                     "predicates": [{
                             "and": [
-								{ "equals": { "method": "POST", "path": "/payments" } }, 
+								{ "equals": { "method": "POST", "path": "/payments" } },
 								{ "endsWith": { "body": { "card_number": "0" } } }
                             ]
                         }
@@ -90,8 +92,7 @@
                                 "statusCode": 503,
                                 "body": {}
                             }
-                        }
-                    ]
+                        }]
                 }
             ]
         }
