@@ -1,0 +1,87 @@
+name: Integration Tests
+
+# Integration + performance tests run against ephemeral Mongo + Mountebank containers. NOT part
+# of the PR-critical CI path (see .github/workflows/ci.yml) — those workflows trade off
+# coverage for speed and reserve this workflow for correctness-against-real-services.
+#
+# Triggers:
+#   - Daily at 02:00 UTC (off-peak for most timezones). Catches drift between merge and "did
+#     we actually re-verify against a real Mongo" without anyone needing to remember to run it.
+#   - Manual dispatch via "Run workflow" — useful after dependency upgrades, after seeding
+#     changes, or before tagging a release.
+
+on:
+  schedule:
+    # 02:00 UTC every day. Cheap enough to run nightly.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+# Don't run two integration workflows at once (the second one would compete for the same Mongo
+# volume and add no value).
+concurrency:
+  group: integration
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Integration + Performance
+    runs-on: ubuntu-latest
+    # Integration suite + perf step is ~3-5 min; 15 min ceiling for headroom.
+    timeout-minutes: 15
+
+    # Integration tests need a real bank simulator + Mongo with the demo-merchant seed. The
+    # mongo-init directory runs on first container start (per mongo's /docker-entrypoint-initdb.d
+    # convention) and seeds the merchant the auth-flow tests require. The IntegrationFixture
+    # probes for the seed doc and sets ServicesAvailable accordingly; without it, integration
+    # tests auto-skip via Skip.IfNot — which means a missing or slow container here surfaces as
+    # "all 15 integration tests skipped" rather than a pipeline failure.
+    services:
+      bank_simulator:
+        image: bbyars/mountebank:2.8.1
+        ports:
+          - 8080:8080
+          - 2525:2525
+
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        env:
+          MONGO_INITDB_DATABASE: payment_gateway
+        volumes:
+          - ./mongo-init:/docker-entrypoint-initdb.d:ro
+
+    env:
+      # Override appsettings.json's localhost defaults so the test runner can reach the
+      # service containers running on the same host (the runner itself).
+      Mongo__ConnectionString: mongodb://localhost:27017
+      BankSimulator__BaseUrl: http://localhost:8080
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore
+
+      # Performance tests carry BOTH [Trait("Category", "Integration")] AND
+      # [Trait("Category", "Performance")]; the &!= filter selects only the plain integration
+      # tests (correctness) for this step. Performance is its own step so its slower CI path
+      # can be toggled independently and its regressions are reported with their own context.
+      - name: Run integration tests
+        run: >-
+          dotnet test --no-build -c Release
+          --filter "Category=Integration&Category!=Performance"
+          --logger "console;verbosity=normal"
+
+      - name: Run performance tests
+        run: >-
+          dotnet test --no-build -c Release
+          --filter "Category=Performance"
+          --logger "console;verbosity=normal"
