@@ -18,6 +18,24 @@ public class ServiceLifetimeTests
     /// per request scope, a fresh typed client each time.
     /// </summary>
     [Fact]
+    public void BankIntents_repository_is_singleton_across_scopes()
+    {
+        // The Mongo-backed BankIntents repository owns the (Status, UpdatedAt) index and shares
+        // its driver's connection pool — singleton lifetime, scoped resolution is irrelevant.
+        using var factory = new WebApplicationFactory<Program>();
+        var root = factory.Services;
+
+        using var scope1 = root.CreateScope();
+        using var scope2 = root.CreateScope();
+
+        var first = scope1.ServiceProvider.GetRequiredService<IBankIntentsRepository>();
+        var inScope2 = scope2.ServiceProvider.GetRequiredService<IBankIntentsRepository>();
+
+        // Same instance across scopes → singleton.
+        inScope2.Should().BeSameAs(first);
+    }
+
+    [Fact]
     public void PaymentsHandler_chain_is_scoped_not_singleton()
     {
         using var factory = new WebApplicationFactory<Program>();
