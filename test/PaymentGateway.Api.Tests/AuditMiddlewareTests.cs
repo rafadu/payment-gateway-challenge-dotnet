@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using PaymentGateway.Api.Controllers;
+using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Exceptions;
@@ -23,6 +24,8 @@ namespace PaymentGateway.Api.Tests;
 public class AuditMiddlewareTests
 {
     private const string MerchantA = "merchant-A";
+    private const string DemoSecret = "demo-secret";
+    private static readonly string DemoSecretHash = BCrypt.Net.BCrypt.HashPassword(DemoSecret);
 
     private static WebApplicationFactory<Program> FactoryWith(IAuditStore store) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -34,6 +37,19 @@ public class AuditMiddlewareTests
                 // MongoPaymentsRepository would otherwise hang on a connection that isn't running.
                 services.RemoveAll<IPaymentsRepository>();
                 services.AddSingleton<IPaymentsRepository>(new InMemoryPaymentsRepository());
+                // Bank-intents outbox also needs an in-memory fake — see PaymentsControllerTests
+                // for the full rationale (the ProcessPaymentHandler's outbox writes hit Mongo by
+                // default, which isn't running in this workflow).
+                services.RemoveAll<IBankIntentsRepository>();
+                services.AddSingleton<IBankIntentsRepository>(new InMemoryBankIntentsRepository(TimeProvider.System));
+                // Fake the Mongo-backed credential store so the token endpoint (used by the
+                // auth-not-audited test) resolves the demo merchant without a database — otherwise
+                // POST /api/auth/token blocks ~30s on the Mongo server-selection timeout.
+                var credentials = Substitute.For<ICredentialStore>();
+                credentials.FindByClientIdAsync("demo-merchant", Arg.Any<CancellationToken>())
+                    .Returns(new MerchantCredential("merchant-42", "demo-merchant", DemoSecretHash));
+                services.RemoveAll<ICredentialStore>();
+                services.AddSingleton(credentials);
             }));
 
     private static void Authorize(HttpClient client, string merchantId)
@@ -67,6 +83,11 @@ public class AuditMiddlewareTests
                 // MongoPaymentsRepository would otherwise hang on a connection that isn't running.
                 services.RemoveAll<IPaymentsRepository>();
                 services.AddSingleton<IPaymentsRepository>(new InMemoryPaymentsRepository());
+                // Bank-intents outbox also needs an in-memory fake — see PaymentsControllerTests
+                // for the full rationale (the ProcessPaymentHandler's outbox writes hit Mongo by
+                // default, which isn't running in this workflow).
+                services.RemoveAll<IBankIntentsRepository>();
+                services.AddSingleton<IBankIntentsRepository>(new InMemoryBankIntentsRepository(TimeProvider.System));
             });
         });
         var client = factory.CreateClient();
@@ -121,6 +142,11 @@ public class AuditMiddlewareTests
                 // MongoPaymentsRepository would otherwise hang on a connection that isn't running.
                 services.RemoveAll<IPaymentsRepository>();
                 services.AddSingleton<IPaymentsRepository>(new InMemoryPaymentsRepository());
+                // Bank-intents outbox also needs an in-memory fake — see PaymentsControllerTests
+                // for the full rationale (the ProcessPaymentHandler's outbox writes hit Mongo by
+                // default, which isn't running in this workflow).
+                services.RemoveAll<IBankIntentsRepository>();
+                services.AddSingleton<IBankIntentsRepository>(new InMemoryBankIntentsRepository(TimeProvider.System));
             });
         });
         var client = factory.CreateClient();
@@ -198,6 +224,11 @@ public class AuditMiddlewareTests
                 // MongoPaymentsRepository would otherwise hang on a connection that isn't running.
                 services.RemoveAll<IPaymentsRepository>();
                 services.AddSingleton<IPaymentsRepository>(new InMemoryPaymentsRepository());
+                // Bank-intents outbox also needs an in-memory fake — see PaymentsControllerTests
+                // for the full rationale (the ProcessPaymentHandler's outbox writes hit Mongo by
+                // default, which isn't running in this workflow).
+                services.RemoveAll<IBankIntentsRepository>();
+                services.AddSingleton<IBankIntentsRepository>(new InMemoryBankIntentsRepository(TimeProvider.System));
             });
         });
         var client = factory.CreateClient();
@@ -239,8 +270,8 @@ public class AuditMiddlewareTests
     {
         // The audit scope is POST /api/payments. POST /api/auth/token is out of scope — a merchant
         // logging in is not a payment event, and uniform-401 means it doesn't leak existence either.
-        // (Using the seeded demo-merchant credentials so the token request returns 200; the test
-        // still proves that a *successful* login writes no audit record.)
+        // (FactoryWith fakes the credential store with the demo merchant so the token request returns
+        // 200 without Mongo; the test still proves that a *successful* login writes no audit record.)
         var store = new InMemoryAuditStore();
         using var factory = FactoryWith(store);
         var client = factory.CreateClient();

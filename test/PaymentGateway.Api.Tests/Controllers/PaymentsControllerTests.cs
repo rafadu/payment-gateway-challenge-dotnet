@@ -53,6 +53,13 @@ public class PaymentsControllerTests
                 // constructor above) so the audit middleware doesn't block on MongoDB.
                 services.RemoveAll<IAuditStore>();
                 services.AddSingleton<IAuditStore>(auditStore);
+
+                // Replace the MongoDB-backed bank-intents outbox with an in-memory one so the
+                // ProcessPaymentHandler's outbox writes don't hit MongoDB. Without this, every
+                // controller test would try to connect to localhost:27017 and time out (which
+                // would surface as a 500, not the test's expected 201/503/etc.).
+                services.RemoveAll<IBankIntentsRepository>();
+                services.AddSingleton<IBankIntentsRepository>(new InMemoryBankIntentsRepository(TimeProvider.System));
             });
         });
         return (factory, factory.CreateClient());
@@ -84,6 +91,10 @@ public class PaymentsControllerTests
                 services.AddSingleton(bankStub);
                 services.RemoveAll<IAuditStore>();
                 services.AddSingleton<IAuditStore>(new InMemoryAuditStore());
+                // Replace the MongoDB-backed bank-intents outbox with an in-memory one — see the
+                // comment in FactoryWith above for why this is required.
+                services.RemoveAll<IBankIntentsRepository>();
+                services.AddSingleton<IBankIntentsRepository>(new InMemoryBankIntentsRepository(TimeProvider.System));
             });
         });
         return (factory, factory.CreateClient(), bankStub);
@@ -105,6 +116,8 @@ public class PaymentsControllerTests
                 services.AddSingleton(bankStub);
                 services.RemoveAll<IAuditStore>();
                 services.AddSingleton<IAuditStore>(new InMemoryAuditStore());
+                services.RemoveAll<IBankIntentsRepository>();
+                services.AddSingleton<IBankIntentsRepository>(new InMemoryBankIntentsRepository(TimeProvider.System));
             });
         });
         return (factory, factory.CreateClient(), bankStub);

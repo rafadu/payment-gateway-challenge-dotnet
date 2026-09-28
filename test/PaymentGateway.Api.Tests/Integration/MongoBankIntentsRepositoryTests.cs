@@ -23,13 +23,21 @@ namespace PaymentGateway.Api.Tests.Integration;
 public class MongoBankIntentsRepositoryTests : IDisposable
 {
     private readonly IntegrationFixture _fixture;
-    private readonly WebApplicationFactory<Program> _factory;
-    private readonly IMongoDatabase _database;
-    private readonly MongoBankIntentsRepository _repo;
+    private readonly WebApplicationFactory<Program>? _factory;
+    private readonly IMongoDatabase _database = null!;
+    private readonly MongoBankIntentsRepository _repo = null!;
 
     public MongoBankIntentsRepositoryTests(IntegrationFixture fixture)
     {
         _fixture = fixture;
+
+        // Only wire up the real Mongo repo when the services are actually running. The constructor
+        // runs for EVERY test in this class — including when the body immediately Skip.IfNot's — and
+        // MongoBankIntentsRepository's constructor calls EnsureIndexes() (a synchronous, best-effort
+        // Mongo call that blocks ~30s on the server-selection timeout when Mongo is down). Without
+        // this guard, an unfiltered `dotnet test` with no docker-compose pays ~30s per test here.
+        if (!fixture.ServicesAvailable) return;
+
         // Hold the factory alive for the duration of the test (xUnit calls Dispose() after each
         // test) — the repo's constructor touches the IMongoDatabase for index creation, and the
         // test queries run against the same database. Disposing too early throws ObjectDisposedException.
@@ -38,7 +46,7 @@ public class MongoBankIntentsRepositoryTests : IDisposable
         _repo = new MongoBankIntentsRepository(_database, NullLogger<MongoBankIntentsRepository>.Instance);
     }
 
-    public void Dispose() => _factory.Dispose();
+    public void Dispose() => _factory?.Dispose();
 
     private static BankIntentRequest ARequest() => new()
     {

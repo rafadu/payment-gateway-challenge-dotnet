@@ -42,12 +42,13 @@ jobs:
       - name: Build
         run: dotnet build -c Release --no-restore
 
-      # The filter excludes anything whose fully-qualified name contains "Integration" (the
-      # Integration namespace) or "Performance" (the Performance namespace) — catches both the
-      # integration tests and the perf-budget tests. Architectural tests live in the Architecture
-      # namespace and don't match the filter exclusions, so they run alongside the unit tests.
+      # Trait-based filter: only run tests NOT tagged [Trait("Category", "Integration")] and
+      # NOT tagged [Trait("Category", "Performance")]. This is more robust than a namespace-based
+      # filter because a test in any namespace can opt into the integration pipeline by adding
+      # [Trait("Category", "Integration")] — useful when a test conceptually needs Mongo or the
+      # bank simulator but lives in a "unit" folder for organizational reasons.
       - name: Run unit + architectural tests
         run: >-
           dotnet test --no-build -c Release
-          --filter "FullyQualifiedName!~Integration&FullyQualifiedName!~Performance"
+          --filter "Category!=Integration&Category!=Performance"
           --logger "console;verbosity=normal"
