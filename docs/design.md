@@ -135,6 +135,13 @@ not close this deeper gap.
   request, not a bank-availability problem. It is therefore an internal error (mapped to `500`),
   **not** a `503` — surfacing it as `503` would invite a merchant retry that could never succeed
   and would corrupt bank-availability metrics.
+- **Merchant `Idempotency-Key` is forwarded verbatim to the bank as the `Idempotency-Key`
+  request header (ADR-0012).** The bank is expected to cache the response under that key and
+  replay it on a matching retry, so a merchant that retries after a transient gateway 5xx gets
+  the bank's cached answer rather than a duplicate charge. Only 2xx responses are cached by
+  the bank (the simulator's `idemCache`); a retry after a 4xx/5xx genuinely re-attempts. When
+  the merchant doesn't supply an `Idempotency-Key` header, no header is sent and the bank has
+  nothing to dedupe on — unchanged behavior.
 
 ## Concurrency
 
