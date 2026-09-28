@@ -1,0 +1,111 @@
+name: CI
+
+# PR validation + main-branch gate. Runs unit + architectural tests always (no docker needed)
+# and integration tests against ephemeral Mongo + Mountebank containers unless opted out via the
+# workflow_dispatch inputs below. Performance tests are excluded from the default run — they're
+# slower (50 sequential + 50 concurrent HTTP calls each) and are caught by the separate
+# benchmarks workflow.
+#
+# Run with defaults on push to main and on PRs. To skip integration tests in a manual run
+# (e.g. for a quick smoke build when no docker is around), use "Run workflow" and toggle the
+# inputs.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      skip_integration_tests:
+        description: >-
+          Skip integration tests (require Mongo + Mountebank services).
+          Unit + architectural tests still run.
+        required: false
+        type: boolean
+        default: false
+      skip_performance_tests:
+        description: >-
+          Skip performance tests (slower; ~50 sequential + ~50 concurrent HTTP calls each).
+        required: false
+        type: boolean
+        default: false
+
+# Don't run a second workflow against the same branch until the first one finishes (cancels
+# the older one on a new push).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit + Architectural + Integration
+    runs-on: ubuntu-latest
+    # Full integration suite + the perf step is ~3-5 min; CI ceiling is 15 min for headroom.
+    timeout-minutes: 15
+
+    # Integration tests need a real bank simulator + Mongo with the demo-merchant seed. The
+    # mongo-init directory runs on first container start (per mongo's /docker-entrypoint-initdb.d
+    # convention) and creates the merchant the auth-flow tests depend on. The IntegrationFixture
+    # probes for the seed doc and sets ServicesAvailable accordingly; without it, integration
+    # tests auto-skip via Skip.IfNot.
+    services:
+      bank_simulator:
+        image: bbyars/mountebank:2.8.1
+        ports:
+          - 8080:8080
+          - 2525:2525
+
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        env:
+          MONGO_INITDB_DATABASE: payment_gateway
+        volumes:
+          - ./mongo-init:/docker-entrypoint-initdb.d:ro
+
+    env:
+      # Override appsettings.json's localhost defaults so the test runner can reach the
+      # service containers running on the same host (the runner itself).
+      Mongo__ConnectionString: mongodb://localhost:27017
+      BankSimulator__BaseUrl: http://localhost:8080
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore
+
+      # Always runs — no docker required. The filter excludes anything whose fully-qualified
+      # name contains "Integration" (the Integration namespace) or "Performance" (the Performance
+      # namespace), which catches both the integration tests and the perf-budget tests.
+      - name: Run unit + architectural tests
+        run: >-
+          dotnet test --no-build -c Release
+          --filter "FullyQualifiedName!~Integration&FullyQualifiedName!~Performance"
+          --logger "console;verbosity=normal"
+
+      - name: Run integration tests
+        if: ${{ !inputs.skip_integration_tests }}
+        # Performance tests carry BOTH [Trait("Category", "Integration")] AND
+        # [Trait("Category", "Performance")]; the &!= filter selects only the plain integration
+        # tests for this step. Performance is its own step so its slower CI path can be toggled
+        # independently and so it stays out of the default PR feedback loop.
+        run: >-
+          dotnet test --no-build -c Release
+          --filter "Category=Integration&Category!=Performance"
+          --logger "console;verbosity=normal"
+
+      - name: Run performance tests
+        if: ${{ !inputs.skip_integration_tests && !inputs.skip_performance_tests }}
+        run: >-
+          dotnet test --no-build -c Release
+          --filter "Category=Performance"
+          --logger "console;verbosity=normal"
