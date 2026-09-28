@@ -13,6 +13,14 @@ namespace PaymentGateway.Api.Abstractions;
 /// </summary>
 public interface IBankIntentsRepository
 {
+    /// <summary>
+    /// Ensures any indexes the store needs for efficient querying exist. Best-effort and
+    /// idempotent — safe to call repeatedly. Invoked once at startup (off the hot path and off the
+    /// constructor) so construction never blocks on I/O. Stores with nothing to index (e.g. the
+    /// in-memory implementation) treat this as a no-op.
+    /// </summary>
+    Task EnsureIndexesAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Persists a new <see cref="BankIntent"/>. Throws on duplicate id.</summary>
     Task AddAsync(BankIntent intent, CancellationToken cancellationToken = default);
 

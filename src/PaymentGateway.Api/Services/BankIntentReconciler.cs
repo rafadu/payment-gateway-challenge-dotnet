@@ -9,13 +9,14 @@ namespace PaymentGateway.Api.Services;
 /// Hosted wrapper that drives <see cref="IntentReconciliationLogic"/> on a timer (§3.2 of
 /// <c>docs/post-payment-orchestration-improvements.md</c>, ADR-0013). Each pass:
 /// <list type="bullet">
+///   <item>waits <see cref="BankIntentReconcilerOptions.PollIntervalSeconds"/> first (sleep-first,
+///     symmetric with <see cref="BankIntentCleanupService"/>) so the initial pass doesn't fire
+///     during host warm-up;</item>
 ///   <item>creates a scope so scoped dependencies are fresh per pass (defensive — currently
 ///     every dependency is singleton, but the per-pass scope keeps that flexible);</item>
 ///   <item>resolves the logic and calls <see cref="IntentReconciliationLogic.ReconcileStaleAsync"/>;</item>
 ///   <item>logs the count of reconciled intents (zero-count passes are not logged — quiet is the
-///     common case);</item>
-///   <item>sleeps for <see cref="BankIntentReconcilerOptions.PollIntervalSeconds"/> before the
-///     next pass.</item>
+///     common case).</item>
 /// </list>
 ///
 /// <para>Errors during a pass are logged but do not stop the loop — the sweeper is the only
@@ -48,6 +49,19 @@ public sealed class BankIntentReconciler : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            // Sleep first, then reconcile — symmetric with BankIntentCleanupService, and it keeps
+            // the reconciler from hitting Mongo the instant the process starts (host warm-up).
+            // staleAfter (default 30s) is well above one poll interval (default 5s), so deferring
+            // the first pass reconciles the same intents it otherwise would have.
+            try
+            {
+                await Task.Delay(pollInterval, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+
             try
             {
                 var reconciled = await ReconcileOnceAsync(staleAfter, stoppingToken);
@@ -65,15 +79,6 @@ public sealed class BankIntentReconciler : BackgroundService
             {
                 _logger.LogError(ex,
                     "Error during bank intent reconciliation pass; will retry on the next interval.");
-            }
-
-            try
-            {
-                await Task.Delay(pollInterval, stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
             }
         }
 

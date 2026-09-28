@@ -13,10 +13,12 @@ namespace PaymentGateway.Api.Persistence;
 /// <c>docs/post-payment-orchestration-improvements.md</c>, ADR-0013). Singleton — one collection
 /// per process; the driver owns the connection pool.
 ///
-/// <para>The constructor creates the <c>(Status, UpdatedAt)</c> index used by the reconciler's
-/// <see cref="FindStaleAsync"/>. Best-effort: a failure is logged but not thrown, so the app
-/// still starts when Mongo is briefly unreachable. Without the index, <see cref="FindStaleAsync"/>
-/// becomes a full collection scan — slower but still correct.</para>
+/// <para>The <c>(Status, UpdatedAt)</c> index used by the reconciler's <see cref="FindStaleAsync"/>
+/// is created by <see cref="EnsureIndexesAsync"/>, invoked once at startup by
+/// <see cref="Services.BankIntentIndexInitializer"/> — deliberately off the constructor so
+/// construction never blocks on network I/O. Best-effort: a failure is logged but not thrown, so
+/// the app still starts when Mongo is briefly unreachable. Without the index,
+/// <see cref="FindStaleAsync"/> becomes a full collection scan — slower but still correct.</para>
 /// </summary>
 public sealed class MongoBankIntentsRepository : IBankIntentsRepository
 {
@@ -27,7 +29,6 @@ public sealed class MongoBankIntentsRepository : IBankIntentsRepository
     {
         _logger = logger;
         _collection = database.GetCollection<BankIntentDocument>("bank_intents");
-        EnsureIndexes();
     }
 
     public async Task AddAsync(BankIntent intent, CancellationToken cancellationToken = default)
@@ -147,7 +148,7 @@ public sealed class MongoBankIntentsRepository : IBankIntentsRepository
         return (int)result.DeletedCount;
     }
 
-    private void EnsureIndexes()
+    public async Task EnsureIndexesAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -155,7 +156,13 @@ public sealed class MongoBankIntentsRepository : IBankIntentsRepository
                 .Ascending(d => d.Status)
                 .Ascending(d => d.UpdatedAt);
             var indexModel = new CreateIndexModel<BankIntentDocument>(keys);
-            _collection.Indexes.CreateOne(indexModel);
+            await _collection.Indexes.CreateOneAsync(indexModel, cancellationToken: cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Host is shutting down mid-creation — propagate so the caller can stop cleanly rather
+            // than log this as a failure. The index will be re-attempted on the next start.
+            throw;
         }
         catch (Exception ex)
         {

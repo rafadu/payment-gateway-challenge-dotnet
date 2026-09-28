@@ -55,7 +55,9 @@ By axis: **Functional** 0 defects (2 robustness watch-items) · **Complexity** 1
 
 ---
 
-### R-003 · 🟡 Suggestion · Robustness (startup behavior asymmetry)
+### R-003 · 🟡 Suggestion · Robustness (startup behavior asymmetry) — ✅ RESOLVED 2026-09-28
+
+> **Update**: `BankIntentReconciler.ExecuteAsync` reordered to sleep-first (symmetric with `BankIntentCleanupService`). Covered by new deterministic unit tests in `BankIntentReconcilerTests` (no reconcile within a long first interval; reconciles after a short one). 5×-repeat stable.
 
 **Location**: `src/PaymentGateway.Api/Services/BankIntentReconciler.cs` (lines 49–72) vs. `BankIntentCleanupService.cs` (lines 51–55)
 **Description**: The reconciler *reconciles first, then sleeps* — its first Mongo poll fires immediately at startup with no delay. The cleanup service *sleeps first, then acts*. The reconciler's immediate first pass is precisely the cold-start Mongo hit that made the `WebApplicationFactory` component tests hang (now mitigated for tests by the `BankIntents:RunBackgroundServices` flag, but production still eats an immediate poll during host warm-up).
@@ -64,7 +66,9 @@ By axis: **Functional** 0 defects (2 robustness watch-items) · **Complexity** 1
 
 ---
 
-### R-004 · 🟡 Suggestion · Robustness (blocking I/O in constructor)
+### R-004 · 🟡 Suggestion · Robustness (blocking I/O in constructor) — ✅ RESOLVED 2026-09-28
+
+> **Update**: index creation moved off the constructor into `IBankIntentsRepository.EnsureIndexesAsync` (async, best-effort, rethrows on shutdown cancellation), run once at startup by a new `BankIntentIndexInitializer : BackgroundService` (gated by the same `BankIntents:RunBackgroundServices` flag; in-memory impl is a no-op). The compound-index integration test now calls `EnsureIndexesAsync` explicitly.
 
 **Location**: `src/PaymentGateway.Api/Persistence/MongoBankIntentsRepository.cs` (constructor line 38 → `EnsureIndexes` line ~150)
 **Description**: The constructor calls `EnsureIndexes()`, a *synchronous* `Indexes.CreateOne` network round-trip. When Mongo is unreachable it blocks ~30s on the driver's server-selection timeout before its best-effort catch swallows the failure. Because it's best-effort it never throws — so it degrades to a silent 30s stall rather than an error.

@@ -94,12 +94,15 @@ public class MongoBankIntentsRepositoryTests : IDisposable
     }
 
     [SkippableFact]
-    public async Task Constructor_creates_a_compound_index_on_Status_and_UpdatedAt()
+    public async Task EnsureIndexesAsync_creates_a_compound_index_on_Status_and_UpdatedAt()
     {
         // The (Status, UpdatedAt) index is what keeps FindStaleAsync a point query instead of a
-        // full collection scan. Verified by reading the index list — Mongo names compound
-        // indexes on field1 + field2 with the convention "field1N_field2M".
+        // full collection scan. Index creation lives in EnsureIndexesAsync (called once at startup
+        // by BankIntentIndexInitializer, off the constructor); here we invoke it directly and then
+        // verify by reading the index list — Mongo names compound indexes "field1N_field2M".
         Skip.IfNot(_fixture.ServicesAvailable, "docker-compose up (bank_simulator + mongo) is not running.");
+
+        await _repo.EnsureIndexesAsync();
 
         var indexes = await _database.GetCollection<BsonDocument>("bank_intents").Indexes.List().ToListAsync();
 

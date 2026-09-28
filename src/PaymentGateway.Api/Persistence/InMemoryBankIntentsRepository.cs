@@ -24,6 +24,9 @@ public sealed class InMemoryBankIntentsRepository : IBankIntentsRepository
     public InMemoryBankIntentsRepository(TimeProvider clock) =>
         _clock = clock;
 
+    // No indexes to build for a ConcurrentDictionary — nothing to do.
+    public Task EnsureIndexesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
     public Task AddAsync(BankIntent intent, CancellationToken cancellationToken = default)
     {
         if (!_intents.TryAdd(intent.Id, intent))
