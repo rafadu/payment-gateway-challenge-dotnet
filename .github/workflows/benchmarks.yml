@@ -1,0 +1,69 @@
+name: Daily Benchmarks
+
+# Run the orchestrator benchmarks once a day (4 AM UTC) and alert if any benchmark's Mean
+# regresses above the per-benchmark threshold in benchmarks/thresholds.json. The main CI
+# pipeline does NOT run these — they're slow and noisy there. The benchmarks are in-process
+# with mocked deps, so no docker / Mongo / Mountebank is required for this workflow.
+#
+# Alerts: a failed workflow surfaces via GitHub's standard notification (email to repo
+# subscribers by default; Slack/Discord/etc. via repo-level integrations). The run's artifacts
+# include the full BDN report (HTML + JSON + Markdown) for triage.
+#
+# Trigger this workflow manually from the Actions tab via "Run workflow" — useful when adjusting
+# thresholds or after a refactor.
+
+on:
+  schedule:
+    # 04:00 UTC every day. Off-peak for most timezones; cheap enough to run nightly.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+# Avoid concurrent runs if a scheduled job overlaps with a manual dispatch.
+concurrency:
+  group: benchmarks
+  cancel-in-progress: true
+
+jobs:
+  benchmarks:
+    name: Orchestrator benchmarks
+    runs-on: ubuntu-latest
+    # BDN with --job short takes ~2 minutes per benchmark (warmup + a few iterations). We have 6
+    # benchmarks + cold-start dotnet restore/build, so 30 minutes is a safe ceiling.
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore
+
+      - name: Make threshold script executable
+        run: chmod +x benchmarks/check-thresholds.sh
+
+      - name: Run benchmarks
+        id: bench
+        working-directory: benchmarks/PaymentGateway.Api.Benchmarks
+        # --job short: faster job profile (fewer iterations, shorter warmup) appropriate for CI.
+        # --exporters json html markdown: structured output (parsed by the threshold check) plus
+        # human-readable reports for the artifacts.
+        run: dotnet run -c Release --no-build -- --job short --exporters json html markdown
+
+      - name: Upload benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-reports-${{ github.run_id }}
+          path: benchmarks/PaymentGateway.Api.Benchmarks/BenchmarkDotNet.Artifacts/results/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Check thresholds and fail on regression
+        if: success()
+        run: ./benchmarks/check-thresholds.sh

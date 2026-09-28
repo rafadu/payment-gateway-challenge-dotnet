@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>PaymentGateway.Api.Benchmarks</RootNamespace>
+    <!-- Suppress two warnings that are noise for this project:
+         CS5001: BenchmarkDotNet generates its own Main via BenchmarkRunner.Run; the compiler
+                  can't see it and warns about a missing entry point.
+         CS0436: The benchmark's top-level Program class conflicts with PaymentGateway.Api's
+                  public partial class Program (exposed so test projects can use
+                  WebApplicationFactory<Program>). The compiler picks the local one — benign. -->
+    <NoWarn>$(NoWarn);CS5001;CS0436</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+    <PackageReference Include="NSubstitute" Version="6.2.0" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="8.10.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PaymentGateway.Api\PaymentGateway.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="NSubstitute" />
+    <Using Include="NSubstitute.ExceptionExtensions" />
+    <Using Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

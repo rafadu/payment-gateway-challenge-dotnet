@@ -1,0 +1,11 @@
+{
+  "_comment": "Per-benchmark thresholds in nanoseconds (BenchmarkDotNet's Mean unit). The workflow fails when any benchmark's Mean exceeds its threshold. Generous defaults — tighten based on actual baseline runs (look at benchmarks/PaymentGateway.Api.Benchmarks/BenchmarkDotNet.Artifacts/results/*.md after the first run). Values are Mean in nanoseconds; 100_000 = 100μs, 500_000 = 500μs.",
+  "thresholds": {
+    "PaymentHandlerBenchmarks.Authorized_payment":                       { "meanNs": 100000 },
+    "PaymentHandlerBenchmarks.Declined_payment":                         { "meanNs": 100000 },
+    "PaymentHandlerBenchmarks.Bank_unavailable_503":                     { "meanNs": 100000 },
+    "IntentReconciliationLogicBenchmarks.Authorized_intent_materializes_Payment_and_marks_reconciled": { "meanNs": 500000 },
+    "IntentReconciliationLogicBenchmarks.Pending_intent_bumps_Attempts_and_does_not_touch_payments": { "meanNs": 500000 },
+    "IntentReconciliationLogicBenchmarks.Authorized_intent_with_existing_Payment_marks_Reconciled_idempotent_catchup": { "meanNs": 500000 }
+  }
+}
