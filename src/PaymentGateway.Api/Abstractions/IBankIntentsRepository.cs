@@ -56,4 +56,33 @@ public interface IBankIntentsRepository
     /// <see cref="BankIntentStatus.Cancelled"/>) are excluded.
     /// </summary>
     Task<IReadOnlyList<BankIntent>> FindStaleAsync(TimeSpan staleAfter, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes intents whose status is <see cref="BankIntentStatus.Reconciled"/> AND whose
+    /// <c>UpdatedAt</c> is older than <paramref name="olderThan"/>. Returns the count of rows
+    /// removed. Called by the cleanup hosted service (TTL) to keep the collection bounded —
+    /// Reconciled intents have no further use once the Payment is materialized and the
+    /// Idempotency-Key replay window has passed.
+    /// </summary>
+    Task<int> DeleteReconciledOlderThanAsync(DateTime olderThan, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes intents whose status is <see cref="BankIntentStatus.Pending"/> AND whose
+    /// <c>CreatedAt</c> is older than <paramref name="olderThan"/>. Returns the count of rows
+    /// removed.
+    ///
+    /// <para>Uses <c>CreatedAt</c>, NOT <c>UpdatedAt</c>: the reconciler sweeper calls
+    /// <see cref="IncrementAttemptsAsync"/> on every Pending intent it observes, which refreshes
+    /// <c>UpdatedAt</c> on every pass (default 5s). If the cutoff used <c>UpdatedAt</c>, the
+    /// sweeper's own bumps would keep the cutoff moving forward forever and Pending would
+    /// never be eligible for cleanup — a 503'd request would accumulate as a Pending intent
+    /// indefinitely. <c>CreatedAt</c> is set once at intent creation and never mutated, so it's
+    /// the true age of the intent.</para>
+    ///
+    /// <para>Pending intents represent requests where the bank call failed (or the gateway crashed
+    /// before it) — the merchant got a 5xx and either retried, gave up, or never came back. After
+    /// the retention window, ops hasn't investigated, the merchant has moved on, and the row is
+    /// just dead weight. Deleting it is the right move.</para>
+    /// </summary>
+    Task<int> DeletePendingOlderThanAsync(DateTime olderThan, CancellationToken cancellationToken = default);
 }

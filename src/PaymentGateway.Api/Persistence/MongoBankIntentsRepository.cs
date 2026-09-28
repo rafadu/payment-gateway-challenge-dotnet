@@ -117,6 +117,36 @@ public sealed class MongoBankIntentsRepository : IBankIntentsRepository
         return documents.Select(d => d.ToDomain()).ToList();
     }
 
+    public async Task<int> DeleteReconciledOlderThanAsync(DateTime olderThan, CancellationToken cancellationToken = default)
+    {
+        // Compound filter matches the existing (Status, UpdatedAt) index, so the delete is a
+        // bounded index scan rather than a collection scan. Only Reconciled intents with a
+        // stale UpdatedAt are removed — Pending/Authorized/Declined/Cancelled are deliberately
+        // preserved (the cleanup pass is purely about bounding the collection's growth).
+        var filter = Builders<BankIntentDocument>.Filter.And(
+            Builders<BankIntentDocument>.Filter.Eq(d => d.Status, BankIntentStatus.Reconciled),
+            Builders<BankIntentDocument>.Filter.Lt(d => d.UpdatedAt, olderThan));
+
+        var result = await _collection.DeleteManyAsync(filter, cancellationToken);
+        return (int)result.DeletedCount;
+    }
+
+    public async Task<int> DeletePendingOlderThanAsync(DateTime olderThan, CancellationToken cancellationToken = default)
+    {
+        // Pending uses CreatedAt (not UpdatedAt): the sweeper's IncrementAttemptsAsync refreshes
+        // UpdatedAt on every pass, so a cutoff on UpdatedAt would keep Pending ineligible
+        // forever. CreatedAt is set at intent creation and never mutated, so it's the true age.
+        // (Status, UpdatedAt) is the existing compound index — this filter doesn't use it because
+        // Pending is rare and a full collection scan of "Pending" via the Status filter alone
+        // is acceptable for a daily cleanup pass.
+        var filter = Builders<BankIntentDocument>.Filter.And(
+            Builders<BankIntentDocument>.Filter.Eq(d => d.Status, BankIntentStatus.Pending),
+            Builders<BankIntentDocument>.Filter.Lt(d => d.CreatedAt, olderThan));
+
+        var result = await _collection.DeleteManyAsync(filter, cancellationToken);
+        return (int)result.DeletedCount;
+    }
+
     private void EnsureIndexes()
     {
         try

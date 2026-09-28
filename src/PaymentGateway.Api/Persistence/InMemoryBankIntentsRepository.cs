@@ -114,4 +114,42 @@ public sealed class InMemoryBankIntentsRepository : IBankIntentsRepository
             .ToList();
         return Task.FromResult(stale);
     }
+
+    public Task<int> DeleteReconciledOlderThanAsync(DateTime olderThan, CancellationToken cancellationToken = default)
+    {
+        var victims = _intents
+            .Where(kv => kv.Value.Status == BankIntentStatus.Reconciled && kv.Value.UpdatedAt < olderThan)
+            .Select(kv => kv.Key)
+            .ToList();
+        var deleted = 0;
+        foreach (var id in victims)
+        {
+            if (_intents.TryRemove(id, out _))
+            {
+                deleted++;
+            }
+        }
+
+        return Task.FromResult(deleted);
+    }
+
+    public Task<int> DeletePendingOlderThanAsync(DateTime olderThan, CancellationToken cancellationToken = default)
+    {
+        // Pending uses CreatedAt (not UpdatedAt) so the sweeper's per-pass bumps don't keep the
+        // cutoff moving forward — see XML doc on the interface for the rationale.
+        var victims = _intents
+            .Where(kv => kv.Value.Status == BankIntentStatus.Pending && kv.Value.CreatedAt < olderThan)
+            .Select(kv => kv.Key)
+            .ToList();
+        var deleted = 0;
+        foreach (var id in victims)
+        {
+            if (_intents.TryRemove(id, out _))
+            {
+                deleted++;
+            }
+        }
+
+        return Task.FromResult(deleted);
+    }
 }

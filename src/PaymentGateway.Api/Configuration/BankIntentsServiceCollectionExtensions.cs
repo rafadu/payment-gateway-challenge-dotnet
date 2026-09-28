@@ -11,8 +11,10 @@ namespace PaymentGateway.Api.Configuration;
 /// <c>docs/post-payment-orchestration-improvements.md</c>, ADR-0013):
 /// the <see cref="IBankIntentsRepository"/> implementation (Mongo-backed in production,
 /// in-memory as a development/test fallback), the <see cref="IntentReconciliationLogic"/>, the
-/// <see cref="BankIntentReconcilerOptions"/> binding, and the <see cref="BankIntentReconciler"/>
-/// hosted service that drives the logic on a timer.
+/// <see cref="BankIntentReconcilerOptions"/> binding, and the two hosted services that drive the
+/// lifecycle on timers — <see cref="BankIntentReconciler"/> (recovers stale intents) and
+/// <see cref="BankIntentCleanupService"/> (deletes aged Reconciled intents to bound the
+/// collection's growth).
 ///
 /// <para>The Mongo vs. in-memory choice is gated on
 /// <c>BankIntents:UseInMemory</c> in configuration. Default is <c>false</c> (production-style
@@ -27,6 +29,8 @@ public static class BankIntentsServiceCollectionExtensions
     {
         services.Configure<BankIntentReconcilerOptions>(
             configuration.GetSection(BankIntentReconcilerOptions.SectionName));
+        services.Configure<BankIntentsCleanupOptions>(
+            configuration.GetSection(BankIntentsCleanupOptions.SectionName));
 
         services.AddSingleton(TimeProvider.System);
 
@@ -42,6 +46,7 @@ public static class BankIntentsServiceCollectionExtensions
 
         services.AddSingleton<IntentReconciliationLogic>();
         services.AddHostedService<BankIntentReconciler>();
+        services.AddHostedService<BankIntentCleanupService>();
 
         return services;
     }

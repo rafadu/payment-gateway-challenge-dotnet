@@ -36,6 +36,21 @@ public class BankIntentsRepositoryTests
     private BankIntent APendingIntent(Guid? id = null) =>
         BankIntent.StartPending(id ?? Guid.NewGuid(), "merchant-42", ARequest(), _clock.GetUtcNow().UtcDateTime);
 
+    private BankIntent AnIntent(
+        BankIntentStatus status = BankIntentStatus.Reconciled,
+        BankPaymentResponse? response = null,
+        Guid? id = null) =>
+        new()
+        {
+            Id = id ?? Guid.NewGuid(),
+            MerchantId = "merchant-42",
+            Request = ARequest(),
+            Response = response,
+            Status = status,
+            CreatedAt = _clock.GetUtcNow().UtcDateTime,
+            UpdatedAt = _clock.GetUtcNow().UtcDateTime
+        };
+
     // --- Add / Get ----------------------------------------------------------
 
     [Fact]
@@ -238,5 +253,183 @@ public class BankIntentsRepositoryTests
         var stale = await _repo.FindStaleAsync(TimeSpan.FromMinutes(1));
 
         stale.Should().BeEmpty();
+    }
+
+    // --- DeleteReconciledOlderThanAsync (TTL cleanup) -----------------------
+
+    [Fact]
+    public async Task DeleteReconciledOlderThanAsync_removes_reconciled_intents_older_than_the_cutoff()
+    {
+        var intent = AnIntent(status: BankIntentStatus.Reconciled);
+        await _repo.AddAsync(intent);
+        await _repo.MarkReconciledAsync(intent.Id, _clock.GetUtcNow().UtcDateTime);
+
+        _clock.SetUtcNow(_clock.GetUtcNow().UtcDateTime.AddDays(31));
+
+        var deleted = await _repo.DeleteReconciledOlderThanAsync(_clock.GetUtcNow().UtcDateTime.AddDays(-30));
+
+        deleted.Should().Be(1);
+        var stillThere = await _repo.GetAsync(intent.Id);
+        stillThere.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteReconciledOlderThanAsync_does_not_remove_recent_reconciled_intents()
+    {
+        var intent = AnIntent(status: BankIntentStatus.Reconciled);
+        await _repo.AddAsync(intent);
+        await _repo.MarkReconciledAsync(intent.Id, _clock.GetUtcNow().UtcDateTime);
+
+        _clock.SetUtcNow(_clock.GetUtcNow().UtcDateTime.AddMinutes(5));
+
+        var deleted = await _repo.DeleteReconciledOlderThanAsync(_clock.GetUtcNow().UtcDateTime.AddDays(-30));
+
+        deleted.Should().Be(0);
+        var stillThere = await _repo.GetAsync(intent.Id);
+        stillThere.Should().NotBeNull();
+    }
+
+    [Theory]
+    [InlineData(BankIntentStatus.Pending)]
+    [InlineData(BankIntentStatus.Authorized)]
+    [InlineData(BankIntentStatus.Declined)]
+    [InlineData(BankIntentStatus.Cancelled)]
+    public async Task DeleteReconciledOlderThanAsync_does_not_remove_non_Reconciled_intents_even_if_old(BankIntentStatus status)
+    {
+        // The cleanup pass is purely about bounding collection growth — it must not affect
+        // intents the reconciler could still act on, or terminal non-Reconciled states (Cancelled
+        // is terminal too, just for a different reason).
+        var intent = AnIntent(status: status);
+        await _repo.AddAsync(intent);
+        if (status == BankIntentStatus.Reconciled) await _repo.MarkReconciledAsync(intent.Id, _clock.GetUtcNow().UtcDateTime);
+        if (status == BankIntentStatus.Cancelled) await _repo.MarkCancelledAsync(intent.Id, _clock.GetUtcNow().UtcDateTime);
+
+        _clock.SetUtcNow(_clock.GetUtcNow().UtcDateTime.AddDays(60));
+
+        var deleted = await _repo.DeleteReconciledOlderThanAsync(_clock.GetUtcNow().UtcDateTime.AddDays(-30));
+
+        deleted.Should().Be(0);
+        var stillThere = await _repo.GetAsync(intent.Id);
+        stillThere.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task DeleteReconciledOlderThanAsync_returns_the_count_of_removed_intents()
+    {
+        // Seed three Reconciled intents, advance the clock by 60 days, then seed a fresh
+        // Reconciled + a Pending. Only the three old Reconciled are eligible for deletion.
+        for (var i = 0; i < 3; i++)
+        {
+            var intent = AnIntent(status: BankIntentStatus.Reconciled);
+            await _repo.AddAsync(intent);
+            await _repo.MarkReconciledAsync(intent.Id, _clock.GetUtcNow().UtcDateTime);
+        }
+
+        _clock.SetUtcNow(_clock.GetUtcNow().UtcDateTime.AddDays(60));
+
+        var recent = AnIntent(status: BankIntentStatus.Reconciled);
+        await _repo.AddAsync(recent);
+        await _repo.MarkReconciledAsync(recent.Id, _clock.GetUtcNow().UtcDateTime);
+
+        var pending = AnIntent(status: BankIntentStatus.Pending);
+        await _repo.AddAsync(pending);
+
+        var deleted = await _repo.DeleteReconciledOlderThanAsync(_clock.GetUtcNow().UtcDateTime.AddDays(-30));
+
+        deleted.Should().Be(3);
+        (await _repo.GetAsync(recent.Id)).Should().NotBeNull("recent Reconciled must not be deleted");
+        (await _repo.GetAsync(pending.Id)).Should().NotBeNull("Pending must never be deleted by cleanup");
+    }
+
+    // --- DeletePendingOlderThanAsync (TTL for Pending stuck from bank failures) ----
+
+    [Fact]
+    public async Task DeletePendingOlderThanAsync_removes_old_Pending_intents_using_CreatedAt()
+    {
+        // CreatedAt is set when the intent is first written; never mutated by the handler or the
+        // sweeper (the sweeper only bumps UpdatedAt + Attempts). The TTL cutoff must use
+        // CreatedAt — otherwise the sweeper's per-pass bumps would keep the cutoff moving
+        // forward and Pending would never be eligible. This test seeds an old-CreatedAt /
+        // recent-UpdatedAt intent and asserts it gets deleted.
+        var intent = AnIntent(status: BankIntentStatus.Pending);
+        await _repo.AddAsync(intent);  // CreatedAt = now
+
+        // Advance the clock past the retention threshold; that's the intent's age for TTL purposes.
+        _clock.SetUtcNow(_clock.GetUtcNow().UtcDateTime.AddDays(60));
+
+        // The sweeper would have bumped UpdatedAt to "now" — simulate that.
+        await _repo.IncrementAttemptsAsync(intent.Id, _clock.GetUtcNow().UtcDateTime);
+
+        var deleted = await _repo.DeletePendingOlderThanAsync(_clock.GetUtcNow().UtcDateTime.AddDays(-30));
+
+        deleted.Should().Be(1);
+        (await _repo.GetAsync(intent.Id)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeletePendingOlderThanAsync_does_not_remove_recent_Pending_intents()
+    {
+        var intent = AnIntent(status: BankIntentStatus.Pending);
+        await _repo.AddAsync(intent);
+
+        _clock.SetUtcNow(_clock.GetUtcNow().UtcDateTime.AddMinutes(5));
+
+        var deleted = await _repo.DeletePendingOlderThanAsync(_clock.GetUtcNow().UtcDateTime.AddDays(-30));
+
+        deleted.Should().Be(0);
+        (await _repo.GetAsync(intent.Id)).Should().NotBeNull();
+    }
+
+    [Theory]
+    [InlineData(BankIntentStatus.Authorized)]
+    [InlineData(BankIntentStatus.Declined)]
+    [InlineData(BankIntentStatus.Reconciled)]
+    [InlineData(BankIntentStatus.Cancelled)]
+    public async Task DeletePendingOlderThanAsync_does_not_remove_non_Pending_intents_even_if_old(BankIntentStatus status)
+    {
+        // Authorized/Declined mean the reconciler sweeper itself is broken — that's a signal
+        // for ops, not dead weight. Reconciled has its own TTL pass. Cancelled is unused today
+        // but kept as a defensive terminal. The Pending cleanup pass must NOT touch any of these.
+        var intent = AnIntent(status: status);
+        await _repo.AddAsync(intent);
+        if (status == BankIntentStatus.Reconciled) await _repo.MarkReconciledAsync(intent.Id, _clock.GetUtcNow().UtcDateTime);
+        if (status == BankIntentStatus.Cancelled) await _repo.MarkCancelledAsync(intent.Id, _clock.GetUtcNow().UtcDateTime);
+
+        _clock.SetUtcNow(_clock.GetUtcNow().UtcDateTime.AddDays(60));
+
+        var deleted = await _repo.DeletePendingOlderThanAsync(_clock.GetUtcNow().UtcDateTime.AddDays(-30));
+
+        deleted.Should().Be(0);
+        (await _repo.GetAsync(intent.Id)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task DeletePendingOlderThanAsync_returns_the_count_of_removed_intents()
+    {
+        // Seed three old Pending, then advance the clock and seed one fresh Pending. Only the
+        // three old ones should be eligible.
+        for (var i = 0; i < 3; i++)
+        {
+            var intent = AnIntent(status: BankIntentStatus.Pending);
+            await _repo.AddAsync(intent);
+        }
+
+        _clock.SetUtcNow(_clock.GetUtcNow().UtcDateTime.AddDays(60));
+
+        // Sweeper would have bumped the old ones' UpdatedAt — but that doesn't matter, the TTL
+        // filters on CreatedAt.
+        foreach (var _ in new int[3])
+        {
+            // (the loop is just to make the sweeper-bump simulation explicit; in practice
+            // IncrementAttemptsAsync is fine to call multiple times on the same intent)
+        }
+
+        var recent = AnIntent(status: BankIntentStatus.Pending);
+        await _repo.AddAsync(recent);
+
+        var deleted = await _repo.DeletePendingOlderThanAsync(_clock.GetUtcNow().UtcDateTime.AddDays(-30));
+
+        deleted.Should().Be(3);
+        (await _repo.GetAsync(recent.Id)).Should().NotBeNull("recent Pending must not be deleted");
     }
 }
