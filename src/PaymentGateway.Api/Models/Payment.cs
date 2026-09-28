@@ -37,17 +37,26 @@ public class Payment
 
     /// <summary>
     /// Builds a <see cref="Payment"/> from a merchant-validated <paramref name="request"/> and the
-    /// bank's adjudication. The factory generates a fresh id, keeps only the last four digits of
-    /// the card number, and stamps the payment with the caller's <paramref name="merchantId"/>.
-    /// The <paramref name="request"/> is assumed already validated: <c>CardNumber</c>/<c>Currency</c>/
-    /// <c>Cvv</c> are non-null and the card number is at least four digits long.
+    /// bank's adjudication. The factory generates a fresh id (unless <paramref name="id"/> is
+    /// supplied), keeps only the last four digits of the card number, and stamps the payment with
+    /// the caller's <paramref name="merchantId"/>. The <paramref name="request"/> is assumed
+    /// already validated: <c>CardNumber</c>/<c>Currency</c>/<c>Cvv</c> are non-null and the card
+    /// number is at least four digits long.
     /// </summary>
+    /// <param name="id">
+    /// Optional pre-generated id. The outbox (§3.2 of
+    /// <c>docs/post-payment-orchestration-improvements.md</c>) generates the id upfront and shares
+    /// it between the <c>BankIntent</c> and the eventual <c>Payment</c>, so a sweeper-materialized
+    /// Payment has the same id the merchant's cached Idempotency-Key response would have used.
+    /// Pass <c>null</c> (the default) to let the factory generate a new id.
+    /// </param>
     public static Payment FromBankOutcome(
         string merchantId,
         PostPaymentRequest request,
-        BankPaymentResponse bankResponse) => new()
+        BankPaymentResponse bankResponse,
+        Guid? id = null) => new()
         {
-            Id = Guid.NewGuid(),
+            Id = id ?? Guid.NewGuid(),
             MerchantId = merchantId,
             Status = bankResponse.Authorized ? PaymentStatus.Authorized : PaymentStatus.Declined,
             CardNumberLastFour = request.CardNumber![^4..],
