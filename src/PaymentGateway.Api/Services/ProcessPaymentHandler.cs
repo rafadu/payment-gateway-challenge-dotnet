@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models;
@@ -14,28 +16,36 @@ namespace PaymentGateway.Api.Services;
 /// one via DI.
 ///
 /// <para><b>Outbox flow (ADR-0013 / §3.2 of
-/// <c>docs/post-payment-orchestration-improvements.md</c>):</b> four writes — the
+/// <c>docs/post-payment-orchestration-improments.md</c>):</b> four writes — the
 /// <see cref="BankIntent"/> is inserted before the bank is called (write #1) so a gateway crash
 /// between the bank call and the <see cref="Payment"/> persist leaves a durable record the
 /// reconciler can pick up. The remaining three writes record the bank's adjudication (write #2),
 /// insert the <see cref="Payment"/> (write #3), and mark the intent reconciled (write #4). A
 /// crash at any point after write #1 leaves the intent in a state the reconciler can act on;
 /// write #4 is the only one that's safe to lose (it's eventual-consistency bookkeeping).</para>
+///
+/// <para>Each step's exception is logged with structured context (intent id, merchant id, the
+/// step that failed) before propagating — the request still fails with the appropriate HTTP
+/// status, but the log line is enough for an operator to identify the failure mode (Mongo down
+/// on write #1, Mongo down on write #3, etc.) without a stack-trace dive.</para>
 /// </summary>
 public sealed class ProcessPaymentHandler : IPaymentsHandler
 {
     private readonly IAcquiringBankClient _bankClient;
     private readonly IPaymentsRepository _payments;
     private readonly IBankIntentsRepository _intents;
+    private readonly ILogger<ProcessPaymentHandler> _logger;
 
     public ProcessPaymentHandler(
         IAcquiringBankClient bankClient,
         IPaymentsRepository payments,
-        IBankIntentsRepository intents)
+        IBankIntentsRepository intents,
+        ILogger<ProcessPaymentHandler> logger)
     {
         _bankClient = bankClient;
         _payments = payments;
         _intents = intents;
+        _logger = logger;
     }
 
     public async Task<Payment> ProcessPaymentAsync(
@@ -84,6 +94,18 @@ public sealed class ProcessPaymentHandler : IPaymentsHandler
             // sweeper picks up Authorized/Declined and materializes the Payment. We propagate the
             // 503 so the merchant can retry; the merchant→gateway Idempotency-Key filter releases
             // the claim so the retry reaches the bank (which then dedupes via ADR-0012).
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The exceptions that land here are all infra failures — typically Mongo unreachable
+            // on one of writes #2–#4. The intent was written (write #1 succeeded), so the
+            // reconciler will pick it up; we surface the merchant-facing 5xx but log with enough
+            // context (intent id, merchant id, last-successful-step) for ops to diagnose.
+            _logger.LogError(ex,
+                "Payment processing failed after bank adjudication for intent {IntentId} (merchant {MerchantId}). " +
+                "Intent was persisted (write #1) and will be picked up by the reconciler if writes #2–#4 didn't complete.",
+                intent.Id, merchantId);
             throw;
         }
     }

@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using PaymentGateway.Api.Abstractions;
@@ -25,7 +26,7 @@ public class ProcessPaymentHandlerTests
 
     public ProcessPaymentHandlerTests()
     {
-        _handler = new ProcessPaymentHandler(_bank, _repository, _intents);
+        _handler = new ProcessPaymentHandler(_bank, _repository, _intents, NullLogger<ProcessPaymentHandler>.Instance);
     }
 
     private static PostPaymentRequest ARequest() => new()

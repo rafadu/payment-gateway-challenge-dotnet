@@ -9,21 +9,24 @@ using PaymentGateway.Api.Models.Requests;
 namespace PaymentGateway.Api.Middleware;
 
 /// <summary>
-/// Middleware that persists an <see cref="AuditRecord"/> for every processed request
-/// (ADR-0004, audit half). Runs as middleware (not a resource filter) so it captures
-/// <c>401</c>s as well as <c>201</c>/<c>400</c>/<c>503</c> — the resource-filter approach can't see
-/// requests rejected by <c>app.UseAuthorization()</c> before MVC starts. Captures timestamp, JWT
-/// <c>sub</c>, method, path, response status code, outcome label
-/// (Authorized/Declined/ValidationRejected/etc.), total duration, and a masked request summary
-/// for POST /api/payments — the full PAN and the CVV are never persisted.
+/// Middleware that persists an <see cref="AuditRecord"/> for POST /api/payments (ADR-0004,
+/// audit half). Runs as middleware (not a resource filter) so it captures <c>401</c>s as well as
+/// <c>201</c>/<c>400</c>/<c>503</c> — the resource-filter approach can't see requests rejected
+/// by <c>app.UseAuthorization()</c> before MVC starts. Captures timestamp, JWT <c>sub</c>,
+/// method, path, response status code, outcome label (Authorized/Declined/ValidationRejected/etc.),
+/// total duration, and a masked request summary (the full PAN and the CVV are never persisted).
 /// </summary>
+/// <remarks>
+/// <para>Audit scope is intentionally narrow: only POST /api/payments. The original design
+/// (negative-list: audit everything except infrastructure endpoints) created two problems:
+/// (a) every successful GET /api/payments/{id} hit the audit store — a high-volume merchant
+/// paying for forensic trail they don't need; (b) the post-mortem signal-to-noise on the trail
+/// degraded as the read-path traffic grew. The positive-list approach matches the actual
+/// security review need: the trail records payment attempts and their outcomes, not the
+/// retrieval of records that were already approved at creation time.</para>
+/// </remarks>
 public sealed class AuditMiddleware
 {
-    // Non-business infrastructure endpoints that must not enter the forensic audit trail: /metrics
-    // is scraped continuously (ADR-0004/R-001), and health/swagger carry no merchant activity.
-    // Auditing them would pollute the trail and drive constant datastore writes.
-    private static readonly string[] UnauditedPrefixes = ["/metrics", "/health", "/swagger"];
-
     private readonly RequestDelegate _next;
     private readonly IAuditStore _store;
 
@@ -35,7 +38,7 @@ public sealed class AuditMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (IsUnaudited(context.Request.Path))
+        if (!ShouldAudit(context))
         {
             await _next(context);
             return;
@@ -75,13 +78,16 @@ public sealed class AuditMiddleware
         }
     }
 
-    private static bool IsUnaudited(PathString path) =>
-        UnauditedPrefixes.Any(prefix => path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase));
+    // Positive-list audit: only POST /api/payments. GETs (retrieval of already-authorized
+    // payments) and POST /api/auth/token (login, no payment event) are not audited.
+    private static bool ShouldAudit(HttpContext context) =>
+        HttpMethods.IsPost(context.Request.Method)
+        && context.Request.Path.StartsWithSegments("/api/payments", StringComparison.OrdinalIgnoreCase);
 
     private static async Task<IReadOnlyDictionary<string, object?>?> BuildMaskedSummaryAsync(HttpRequest request)
     {
-        // POST /api/payments is the only endpoint with a body worth masking. GET/DELETE/etc. return
-        // null (a GET to /api/payments/{id} carries no PAN / CVV).
+        // POST /api/payments is the only endpoint in the audit scope, so this is always a POST
+        // body — but the guard stays defensive in case the scope widens later.
         if (!HttpMethods.IsPost(request.Method)) return null;
         if (!string.Equals(request.Path, "/api/payments", StringComparison.OrdinalIgnoreCase)) return null;
 

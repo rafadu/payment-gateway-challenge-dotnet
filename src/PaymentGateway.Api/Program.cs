@@ -76,7 +76,10 @@ app.MapControllers();
 // Prometheus scraping endpoint (ADR-0007) — exposes the custom meter at GET /metrics in the
 // OpenTelemetry-configured Prometheus text format. Unauthenticated, intended for scraping from a
 // trusted network; a production deployment would restrict it at the ingress/network layer.
-app.MapPrometheusScrapingEndpoint();
+//
+// The path is passed explicitly (rather than relying on the package default) so a future change
+// in the OpenTelemetry default can't silently shift the public URL of the metrics surface.
+app.MapPrometheusScrapingEndpoint("/metrics");
 
 app.Run();
 

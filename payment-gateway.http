@@ -42,7 +42,7 @@
 # §1 Auth (ADR-0010) — Mongo → CredentialCache → BCrypt → JWT issuance
 ###############################################################################
 
-# @name token — send this first; subsequent requests reference its access_token.
+# @name token
 POST {{host}}/api/auth/token
 Content-Type: application/json
 

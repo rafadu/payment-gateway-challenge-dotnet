@@ -141,21 +141,19 @@ public class AuditMiddlewareTests
     }
 
     [Fact]
-    public async Task Unauthenticated_request_writes_one_record_with_empty_merchant_id_and_outcome_Unauthorized()
+    public async Task Unauthenticated_request_is_not_audited()
     {
+        // Positive-list audit scope (only POST /api/payments): a 401 on a GET to /api/payments/{id}
+        // is noise — the audit trail is about payment attempts, not retrieval. The middleware must
+        // skip the request entirely (no store write).
         var store = new InMemoryAuditStore();
         using var factory = FactoryWith(store);
         var client = factory.CreateClient();
 
-        // No Authorization header → 401.
         var response = await client.GetAsync($"/api/payments/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-
-        var record = store.Records.Single();
-        record.MerchantId.Should().BeEmpty();
-        record.StatusCode.Should().Be(401);
-        record.Outcome.Should().Be("Unauthorized");
+        store.Records.Should().BeEmpty();
     }
 
     [Fact]
@@ -220,29 +218,49 @@ public class AuditMiddlewareTests
     }
 
     [Fact]
-    public async Task GET_request_writes_one_record_with_no_request_summary()
+    public async Task GET_request_is_not_audited()
     {
+        // Positive-list audit scope: GET /api/payments/{id} is out of scope. Reading an
+        // already-authorized payment is not a security-review-worthy event — the trail is for
+        // payment attempts and their outcomes, not retrievals.
         var store = new InMemoryAuditStore();
         using var factory = FactoryWith(store);
         var client = factory.CreateClient();
         Authorize(client, MerchantA);
 
-        // GET on a non-existent id → 404; the audit record should have no request summary (GET
-        // has no body to mask).
         var response = await client.GetAsync($"/api/payments/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        var record = store.Records.Single();
-        record.Method.Should().Be("GET");
-        record.RequestSummary.Should().BeNull();
-        record.Outcome.Should().Be("NotFound");
+        store.Records.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Auth_token_request_is_not_audited()
+    {
+        // The audit scope is POST /api/payments. POST /api/auth/token is out of scope — a merchant
+        // logging in is not a payment event, and uniform-401 means it doesn't leak existence either.
+        // (Using the seeded demo-merchant credentials so the token request returns 200; the test
+        // still proves that a *successful* login writes no audit record.)
+        var store = new InMemoryAuditStore();
+        using var factory = FactoryWith(store);
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/auth/token", new
+        {
+            clientId = "demo-merchant",
+            clientSecret = "demo-secret"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        store.Records.Should().BeEmpty();
     }
 
     [Fact]
     public async Task Infrastructure_endpoints_like_metrics_are_not_audited()
     {
-        // R-001: /metrics is scraped continuously; auditing every scrape pollutes the forensic
-        // trail (ADR-0004) and drives constant Mongo writes. It must be skipped by the middleware.
+        // /metrics is scraped continuously; auditing every scrape pollutes the forensic trail
+        // (ADR-0004) and drives constant Mongo writes. With the positive-list scope, /metrics is
+        // out of scope by definition.
         var store = new InMemoryAuditStore();
         using var factory = FactoryWith(store);
         var client = factory.CreateClient();
