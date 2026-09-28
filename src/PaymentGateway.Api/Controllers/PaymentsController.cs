@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PaymentGateway.Api.Abstractions;
 using PaymentGateway.Api.Exceptions;
+using PaymentGateway.Api.Filters;
 using PaymentGateway.Api.Metrics;
 using PaymentGateway.Api.Models;
 using PaymentGateway.Api.Models.Requests;
@@ -68,10 +69,12 @@ public class PaymentsController : ControllerBase
 
         try
         {
-            // Slice E2 placeholder: pass null for the bank idempotency key. E3 will read the
-            // Idempotency-Key request header here and forward it as bankKey (ADR-0012).
+            // The IdempotencyResourceFilter has already validated that the header is non-blank
+            // when present (see Filter code). Forward the merchant's key verbatim to the bank so
+            // a retry under the same key replays the bank's previous answer (ADR-0012, R-4).
+            var bankIdempotencyKey = CallerBankIdempotencyKey();
             var payment = await _paymentsHandler.ProcessPaymentAsync(
-                request, merchantId, bankIdempotencyKey: null, cancellationToken);
+                request, merchantId, bankIdempotencyKey, cancellationToken);
             return CreatedAtAction(nameof(GetPayment), new { id = payment.Id }, ToResponse(payment));
         }
         catch (BankUnavailableException)
@@ -119,6 +122,16 @@ public class PaymentsController : ControllerBase
         User.FindFirstValue("sub")
             ?? throw new InvalidOperationException(
                 "Authenticated principal is missing the 'sub' claim; the JWT bearer middleware should have rejected this request.");
+
+    // Reads the merchant's Idempotency-Key request header verbatim to forward to the bank
+    // (ADR-0012, R-4). The IdempotencyResourceFilter already gates the action on the header being
+    // non-blank when present, so a blank-value header never reaches the action — but the
+    // string.IsNullOrWhiteSpace guard keeps the helper safe in isolation.
+    private string? CallerBankIdempotencyKey() =>
+        Request.Headers.TryGetValue(IdempotencyResourceFilter.HeaderName, out var values)
+            && !string.IsNullOrWhiteSpace(values)
+            ? values.ToString()
+            : null;
 
     private static PaymentResponse ToResponse(Payment payment) => new()
     {

@@ -487,6 +487,45 @@ public class PaymentsControllerTests
         var second = await client.PostAsJsonAsync("/api/payments", AValidRequest());
         second.StatusCode.Should().Be(HttpStatusCode.Created);
     }
+
+    // --- Bank idempotency key forwarding (ADR-0012) -------------------------
+
+    [Fact]
+    public async Task POST_forwards_the_Idempotency_Key_header_to_the_bank_as_the_bank_idempotency_key()
+    {
+        // The merchant's Idempotency-Key header is forwarded verbatim to the bank (R-4), so a
+        // retry under the same key replays the bank's previous answer.
+        string? sentKey = "untouched";
+        var bankStub = Substitute.For<IAcquiringBankClient>();
+        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Do<string?>(k => sentKey = k), Arg.Any<CancellationToken>())
+            .Returns(new BankPaymentResponse { Authorized = true, AuthorizationCode = "auth-code" });
+        var (factory, client, _) = FactoryWithBankBehavior(new InMemoryPaymentsRepository(), bankStub);
+        Authorize(factory, client, MerchantA);
+        client.DefaultRequestHeaders.Add(IdempotencyResourceFilter.HeaderName, "merchant-attempt-1");
+
+        var response = await client.PostAsJsonAsync("/api/payments", AValidRequest());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        sentKey.Should().Be("merchant-attempt-1");
+    }
+
+    [Fact]
+    public async Task POST_without_an_Idempotency_Key_header_forwards_null_to_the_bank()
+    {
+        // The Idempotency-Key header is opt-in (ADR-0003 / ADR-0012). A merchant that doesn't
+        // supply one must not have a header invented for them downstream.
+        string? sentKey = "untouched";
+        var bankStub = Substitute.For<IAcquiringBankClient>();
+        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Do<string?>(k => sentKey = k), Arg.Any<CancellationToken>())
+            .Returns(new BankPaymentResponse { Authorized = true, AuthorizationCode = "auth-code" });
+        var (factory, client, _) = FactoryWithBankBehavior(new InMemoryPaymentsRepository(), bankStub);
+        Authorize(factory, client, MerchantA);
+
+        var response = await client.PostAsJsonAsync("/api/payments", AValidRequest());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        sentKey.Should().BeNull();
+    }
 }
 
 internal static class TestJwt
