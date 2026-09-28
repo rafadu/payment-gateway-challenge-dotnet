@@ -196,3 +196,109 @@ class — the shape §2 was meant to enable. The recommended order in §5 stands
 - Is `IMemoryCache` an acceptable idempotency-key backing? §3.4.
 - Is Polly already in the dependency graph? §3.3. (Spot-check: it's NOT in `PaymentGateway.Api.csproj`
   or the test csproj at the time of this writing — would need to be added.)
+
+## 8. Plan — §3.2 (Option B / mongo-backed outbox) + ADR-0012 (Option E / bank-side Idempotency-Key)
+
+Both options ship together — complementary gaps (B closes "gateway crashed silently";
+E closes "merchant retries after gateway 5xx"). E's signature change to
+`IPaymentsHandler.ProcessPaymentAsync` has to land before B's body change so we don't
+revisit the signature twice. E first because it's more self-contained (one header, one
+parameter, one simulator stub); B is the bigger architectural lift and benefits from a
+settled handler signature.
+
+### End-state shape
+
+```
+POST /api/payments (Idempotency-Key: K)
+   │
+   ▼
+PaymentsController
+   │  validates, maps 400/503/500
+   │  merchantId  = sub claim
+   │  bankKey     = Idempotency-Key header (forwarded verbatim — R-4)
+   ▼
+IPaymentsHandler (AuditOutcomeDecorator → MetricsDecorator → ProcessPaymentHandler)
+   │
+   │  handler.ProcessPaymentAsync(req, merchantId, bankKey=K)
+   │  ┌── B: insert BankIntent { Id=paymentId, Status=Pending, Request=sanitizedSnapshot }
+   │  ├── E: bankClient.ProcessPaymentAsync(bankReq, idempotencyKey=K)
+   │  ├── B: update BankIntent { Status=Authorized/Declined, Response=... }
+   │  ├── B: insert Payment { Id=paymentId }
+   │  └── B: update BankIntent { Status=Reconciled }
+   │
+   ▼
+BankIntents collection (durable outbox)
+   └── hosted BankIntentReconciler polls every Ns:
+       for each stale intent where status ∈ {Pending, Authorized, Declined}:
+         • Authorized/Declined + no Payment:
+             rebuild Payment, persist, mark Reconciled
+         • Pending (old):
+             increment Attempts, log alert (R-7: leave Pending, ops investigates)
+```
+
+### Decisions locked
+
+- **R-4 (key forwarding)**: Forward the merchant's `Idempotency-Key: K` verbatim to the
+  bank. The merchant→gateway filter (ADR-0003) already requires the key to be unique
+  enough; bank's namespace is opaque to merchants. No namespacing.
+- **R-7 (stale Pending)**: Reconciler increments `Attempts` and logs/alert; status stays
+  `Pending`. Ops investigates via the bank's transaction report. No auto-cancel, no metric
+  spike — the `Attempts` counter is the visible signal.
+- **Simulator cache scope** (E): only 2xx responses are cached under the Idempotency-Key.
+  4xx/5xx never are — a retry after a transient bank failure must re-attempt, not replay
+  the failure.
+- **Mongo transactions**: not used. The 4-write flow in `ProcessPaymentHandler` is
+  sequential, accepting eventual consistency. Single-node Mongo in `docker-compose.yml`
+  doesn't support transactions; production replica set would, but the reconciler is the
+  consistency mechanism by design — no extra value from transactions.
+- **`BankIntent.Id == Payment.Id`**: outbox record and the eventual Payment share an id.
+  If the gateway crashes mid-flow, the sweeper-materialized Payment has the same id the
+  cached Idempotency-Key response would have used. No id-mismatch bugs.
+- **`BankIntentRequest` is sanitized**: stores last-four, expiry, currency, amount. Never
+  PAN, never CVV. The PCI safety net (ADR-0008 architecture test) still holds.
+- **`BankPaymentResponse.AuthorizationCode`** stays on the wire but is not persisted in
+  the `BankIntent` either (mirrors the existing `Payment` policy from `design.md`).
+
+### TDD slices (per-slice review + check-in; user commits each)
+
+| # | Slice | What's added/changed | Tests added | What review covers |
+|---|---|---|---|---|
+| **E1** | Bank client header | `IAcquiringBankClient` +1 param, `AcquiringBankClient` sends header | 2 | Header sent when key provided; absent when not |
+| **E2** | Handler signature | `IPaymentsHandler` +1 param, decorator forwarding | 1 + 4 updated | Parameter threaded through chain; existing handler tests still pass |
+| **E3** | Controller wiring | `PaymentsController` reads `Idempotency-Key` | 1 | Header → handler (only when non-blank) |
+| **E4** | Simulator | `imposters/bank_simulator.ejs` cache stub + behaviors | 1 integration | First POST under K → cache miss; second → cache hit |
+| **E5** | ADR + docs | `docs/adr/0012-bank-side-idempotency-key.md`, `docs/design.md` | — | Design rationale recorded |
+| **B1** | Domain + in-memory repo | `BankIntent`, `BankIntentRequest`, `BankIntentStatus`, `IBankIntentsRepository`, `InMemoryBankIntentsRepository` | ~7 | Factory sanitizes PAN; repo CRUD; `FindStaleAsync` |
+| **B2** | Handler outbox body | `ProcessPaymentHandler` 4-write flow, `Payment.FromBankOutcome` optional id | 4 + updated | One test per crash-point |
+| **B3** | Reconciler logic | `IntentReconciliationLogic` | ~4 | Stale Authorized/Declined → create Payment; stale Pending → increment; existing Payment → mark Reconciled |
+| **B4** | Reconciler host + Mongo + DI | `BankIntentReconciler` `BackgroundService`, `MongoBankIntentsRepository`, `Configuration/BankIntentsServiceCollectionExtensions`, `Program.cs`, `appsettings.json` | ~3 | Lifetime correct; index `(Status, UpdatedAt)` created on startup |
+| **B5** | Integration test + ADR | `Integration/BankIntentReconciliationIntegrationTests`, ADR-0013 (outbox) | 1 integration | End-to-end: crash mid-handler → sweeper materializes Payment within poll interval |
+
+### Combined Idempotency-Key semantics (three layers)
+
+| Layer | Owns | Cache | Survives restart? |
+|---|---|---|---|
+| Merchant → Gateway | `IdempotencyResourceFilter` (`IIdempotencyStore`) | In-memory `ConcurrentDictionary` (ADR-0003: 2xx+400 cached, 5xx released) | No |
+| Gateway → Bank | Mountebank `state.idemCache` | In-memory; 2xx only | No |
+| Internal recovery | `BankIntents` + reconciler | Mongo | Yes |
+
+### Risks tracked (none blocking; documented where relevant)
+
+- **R-1** (architectural): sweeper-side bug could create intents without payments or vice
+  versa. Mitigated by B5's integration test, mandatory.
+- **R-2** (simulator state): idempotency cache lost on simulator restart. ADR-0012
+  documents; not solved (matches the reality of any real bank's cache persistence story
+  being external to the gateway).
+- **R-5** (Mongo transactions): sequential writes, no transactions. ADR-0013 will
+  document as a deliberate design choice.
+- **R-6** (storing the merchant's `Idempotency-Key` on `BankIntent`): NOT in scope.
+  ADR-0013 notes as a follow-up — the sweeper retries bank calls for stale Pending without
+  a key, accepting the very-small double-charge risk in the un-bank-resolvable case.
+  Adding it later is one field + one parameter.
+
+### Size
+
+- New files: 14
+- Modified files: 17 (production + tests + docs)
+- Tests added: ~35; tests updated: ~6
+- Wall-clock estimate (TDD red-green-review-check-in per slice): 3-4 working sessions.

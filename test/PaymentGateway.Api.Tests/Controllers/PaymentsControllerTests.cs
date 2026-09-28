@@ -70,7 +70,7 @@ public class PaymentsControllerTests
         FactoryWithBankStub(IPaymentsRepository repository, bool bankAuthorized)
     {
         var bankStub = Substitute.For<IAcquiringBankClient>();
-        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
+        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new BankPaymentResponse { Authorized = bankAuthorized, AuthorizationCode = "auth-code" });
 
         var factory = new WebApplicationFactory<PaymentsController>().WithWebHostBuilder(builder =>
@@ -380,7 +380,7 @@ public class PaymentsControllerTests
         second.StatusCode.Should().Be(HttpStatusCode.Created);
         (await first.Content.ReadFromJsonAsync<PaymentResponse>())!.Id
             .Should().NotBe((await second.Content.ReadFromJsonAsync<PaymentResponse>())!.Id);
-        await bankStub.Received(2).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>());
+        await bankStub.Received(2).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -406,7 +406,7 @@ public class PaymentsControllerTests
             .Should().Be((await second.Content.ReadFromJsonAsync<PaymentResponse>())!.Id);
 
         // Bank must have been hit exactly once — the safety property of ADR-0003.
-        await bankStub.Received(1).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>());
+        await bankStub.Received(1).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
 
         // Exactly one replay was served (the second request), recorded to the metric (ADR-0007).
         replays.GetMeasurementSnapshot().Sum(m => m.Value).Should().Be(1);
@@ -431,7 +431,7 @@ public class PaymentsControllerTests
         var response = await client.PostAsJsonAsync("/api/payments", differentBody);
 
         response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-        await bankStub.Received(1).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>());
+        await bankStub.Received(1).ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -458,7 +458,7 @@ public class PaymentsControllerTests
             new StringContent(bodyJson, Encoding.UTF8, "application/json"));
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        await bankStub.DidNotReceive().ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>());
+        await bankStub.DidNotReceive().ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -471,7 +471,7 @@ public class PaymentsControllerTests
         // merchant retry (after the bank recovers) gets through to the bank again, instead of
         // being replayed as a 503 forever.
         var bankStub = Substitute.For<IAcquiringBankClient>();
-        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
+        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new BankUnavailableException("bank down"));
         var (factory, client, _) = FactoryWithBankBehavior(repository, bankStub);
         Authorize(factory, client, MerchantA);
@@ -481,7 +481,7 @@ public class PaymentsControllerTests
         first.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
 
         // Simulate the bank recovering: swap the stub to a successful one in the store.
-        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
+        bankStub.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new BankPaymentResponse { Authorized = true, AuthorizationCode = "auth-code" });
 
         var second = await client.PostAsJsonAsync("/api/payments", AValidRequest());

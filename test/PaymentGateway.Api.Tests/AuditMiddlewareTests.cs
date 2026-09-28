@@ -52,7 +52,7 @@ public class AuditMiddlewareTests
     {
         var store = new InMemoryAuditStore();
         var fakeBank = Substitute.For<IAcquiringBankClient>();
-        fakeBank.ProcessPaymentAsync(Arg.Any<Models.Bank.BankPaymentRequest>(), Arg.Any<CancellationToken>())
+        fakeBank.ProcessPaymentAsync(Arg.Any<Models.Bank.BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new Models.Bank.BankPaymentResponse { Authorized = true, AuthorizationCode = "auth-code" });
 
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -106,7 +106,7 @@ public class AuditMiddlewareTests
         // for prod is at http://localhost:8080 which isn't running in unit tests, so override
         // with a fake that returns Declined directly.
         var fakeBank = Substitute.For<IAcquiringBankClient>();
-        fakeBank.ProcessPaymentAsync(Arg.Any<Models.Bank.BankPaymentRequest>(), Arg.Any<CancellationToken>())
+        fakeBank.ProcessPaymentAsync(Arg.Any<Models.Bank.BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new Models.Bank.BankPaymentResponse { Authorized = false });
 
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -185,7 +185,7 @@ public class AuditMiddlewareTests
     {
         var store = new InMemoryAuditStore();
         var fakeBank = Substitute.For<IAcquiringBankClient>();
-        fakeBank.ProcessPaymentAsync(Arg.Any<Models.Bank.BankPaymentRequest>(), Arg.Any<CancellationToken>())
+        fakeBank.ProcessPaymentAsync(Arg.Any<Models.Bank.BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new BankUnavailableException("bank down"));
 
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>

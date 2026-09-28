@@ -40,7 +40,7 @@ public class ProcessPaymentHandlerTests
     private const string TestMerchantId = "merchant-42";
 
     private void BankResponds(bool authorized) =>
-        _bank.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
+        _bank.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new BankPaymentResponse { Authorized = authorized, AuthorizationCode = "auth-code" });
 
     [Fact]
@@ -75,7 +75,7 @@ public class ProcessPaymentHandlerTests
     {
         BankResponds(authorized: true);
         BankPaymentRequest? sent = null;
-        _bank.ProcessPaymentAsync(Arg.Do<BankPaymentRequest>(r => sent = r), Arg.Any<CancellationToken>())
+        _bank.ProcessPaymentAsync(Arg.Do<BankPaymentRequest>(r => sent = r), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new BankPaymentResponse { Authorized = true });
 
         await _handler.ProcessPaymentAsync(ARequest(), TestMerchantId);
@@ -95,7 +95,7 @@ public class ProcessPaymentHandlerTests
     {
         BankResponds(authorized: true);
         BankPaymentRequest? sent = null;
-        _bank.ProcessPaymentAsync(Arg.Do<BankPaymentRequest>(r => sent = r), Arg.Any<CancellationToken>())
+        _bank.ProcessPaymentAsync(Arg.Do<BankPaymentRequest>(r => sent = r), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new BankPaymentResponse { Authorized = true });
 
         var request = ARequest();
@@ -153,7 +153,7 @@ public class ProcessPaymentHandlerTests
     [MemberData(nameof(BankFailures))]
     public async Task A_bank_failure_propagates_and_nothing_is_persisted(Exception failure)
     {
-        _bank.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<CancellationToken>())
+        _bank.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(failure);
 
         var thrown = await _handler.Invoking(s => s.ProcessPaymentAsync(ARequest(), TestMerchantId))

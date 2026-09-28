@@ -168,7 +168,7 @@ public class AcquiringBankClientTests
         });
         var client = ClientFor(handler);
 
-        await client.Invoking(c => c.ProcessPaymentAsync(ARequest(), cts.Token))
+        await client.Invoking(c => c.ProcessPaymentAsync(ARequest(), null, cts.Token))
             .Should().ThrowAsync<OperationCanceledException>();
     }
 
@@ -274,9 +274,42 @@ public class AcquiringBankClientTests
         });
         var client = ClientFor(handler);
 
-        await client.Invoking(c => c.ProcessPaymentAsync(ARequest(), cts.Token))
+        await client.Invoking(c => c.ProcessPaymentAsync(ARequest(), null, cts.Token))
             .Should().ThrowAsync<OperationCanceledException>();
 
         collector.GetMeasurementSnapshot().Should().BeEmpty();
+    }
+
+    // --- Idempotency-Key header (ADR-0012) ---------------------------------
+
+    [Fact]
+    public async Task Sends_an_Idempotency_Key_header_when_one_is_provided()
+    {
+        var handler = RespondsWith(HttpStatusCode.OK,
+            """{ "authorized": true, "authorization_code": "code" }""");
+        var client = ClientFor(handler);
+
+        await client.ProcessPaymentAsync(ARequest(), idempotencyKey: "merchant-attempt-1");
+
+        handler.LastRequest!.Headers.GetValues("Idempotency-Key")
+            .Should().ContainSingle().Which.Should().Be("merchant-attempt-1");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Does_not_send_an_Idempotency_Key_header_when_none_is_provided(string? idempotencyKey)
+    {
+        // The merchant→gateway filter already enforces that an Idempotency-Key, when present, is
+        // non-blank — but the gateway's forwarding logic must also tolerate a null/blank value
+        // (callers that don't opt in shouldn't have a header invented for them).
+        var handler = RespondsWith(HttpStatusCode.OK,
+            """{ "authorized": true, "authorization_code": "code" }""");
+        var client = ClientFor(handler);
+
+        await client.ProcessPaymentAsync(ARequest(), idempotencyKey: idempotencyKey);
+
+        handler.LastRequest!.Headers.Contains("Idempotency-Key").Should().BeFalse();
     }
 }

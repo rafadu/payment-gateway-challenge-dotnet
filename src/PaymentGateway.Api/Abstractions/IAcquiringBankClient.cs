@@ -9,7 +9,11 @@ namespace PaymentGateway.Api.Abstractions;
 public interface IAcquiringBankClient
 {
     /// <summary>
-    /// Posts <paramref name="request"/> to the bank and returns its response.
+    /// Posts <paramref name="request"/> to the bank and returns its response. When
+    /// <paramref name="idempotencyKey"/> is non-blank, it is forwarded as the
+    /// <c>Idempotency-Key</c> HTTP header so the bank can dedupe retries against the same
+    /// authorisation (ADR-0012). Pass <c>null</c> when the merchant didn't opt in (no header
+    /// is sent).
     /// </summary>
     /// <exception cref="BankUnavailableException">
     /// The bank returned a non-success status (other than <c>400</c>), timed out, could not be
@@ -23,5 +27,8 @@ public interface IAcquiringBankClient
     /// <exception cref="OperationCanceledException">
     /// <paramref name="cancellationToken"/> was cancelled by the caller.
     /// </exception>
-    Task<BankPaymentResponse> ProcessPaymentAsync(BankPaymentRequest request, CancellationToken cancellationToken = default);
+    Task<BankPaymentResponse> ProcessPaymentAsync(
+        BankPaymentRequest request,
+        string? idempotencyKey = null,
+        CancellationToken cancellationToken = default);
 }

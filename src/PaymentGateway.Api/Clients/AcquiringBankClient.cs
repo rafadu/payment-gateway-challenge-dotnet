@@ -33,15 +33,29 @@ public sealed class AcquiringBankClient : IAcquiringBankClient
         _metrics = metrics;
     }
 
-    public async Task<BankPaymentResponse> ProcessPaymentAsync(BankPaymentRequest request, CancellationToken cancellationToken = default)
+    public async Task<BankPaymentResponse> ProcessPaymentAsync(
+        BankPaymentRequest request,
+        string? idempotencyKey = null,
+        CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
         void Record(BankCallOutcome outcome) =>
             _metrics.RecordBankCall(stopwatch.Elapsed.TotalMilliseconds, Acquirer, outcome);
 
+        // Built as an HttpRequestMessage (not PostAsJsonAsync) so we can attach the optional
+        // Idempotency-Key header for ADR-0012 bank-side dedupe of retries.
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "payments")
+        {
+            Content = JsonContent.Create(request)
+        };
+        if (!string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            httpRequest.Headers.Add("Idempotency-Key", idempotencyKey);
+        }
+
         try
         {
-            using var response = await _httpClient.PostAsJsonAsync("payments", request, cancellationToken);
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
 
             // A 400 means the bank rejected the request as incomplete/malformed. Merchant input is
             // already validated, so this is a defect in how we built the bank request — an internal
