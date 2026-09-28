@@ -1,28 +1,48 @@
 ### Payment Gateway — manual API walkthrough
 #
 # Run with VS Code's "REST Client" extension or JetBrains' built-in HTTP Client. Variables
-# below (defined with @name) are referenced as {{name}}. Send the token request FIRST (line 28),
-# then any other request — `{{token.response.body.accessToken}}` resolves from the captured response.
+# defined with @name are referenced as {{name}}; send the token request FIRST so the
+# {{token.response.body.accessToken}} capture resolves before any other request.
 #
-# Prerequisite (Docker required):
-#   docker compose up --build     # brings up bank_simulator + mongo + api on localhost:5067
-#   # OR (for unit tests against real services):
+# Prerequisite (Docker required for the bank simulator + Mongo):
+#   docker compose up --build                 # full stack on localhost:5067
+#   # OR (for unit / integration tests against the real services):
 #   docker compose up -d bank_simulator mongo
 #
-# Bank simulator rule (imposters/bank_simulator.ejs): last digit of card_number decides the
-# outcome — odd (1/3/5/7/9) → Authorized, even (2/4/6/8) → Declined, 0 → 503.
+# Bank simulator (imposters/bank_simulator.ejs) — last digit of card_number:
+#   1, 3, 5, 7, 9 → 200 authorized=true
+#   2, 4, 6, 8     → 200 authorized=false
+#   0              → 503 (bank unavailable)
+#
+# Behaviors demonstrated end-to-end (one request per behavior, grouped by concern):
+#   §1  Auth (ADR-0010) — token issuance, wrong secret (401), blank credentials (400)
+#   §2  Auth gating — no token / malformed bearer both → 401
+#   §3  Payment happy paths (ADR-0001) — Authorized (201), Declined (201)
+#   §4  Payment failure paths — bank unavailable (503), validation rejected (400),
+#       currency outside allow-list (400), amount = 0 (ADR-0002)
+#   §5  GET /api/payments/{id} (ADR-0010 owner scoping) — own payment (200),
+#       non-existent (404)
+#   §6  Idempotency-Key (ADR-0003) — first POST cached under key, replay returns
+#       same id without hitting the bank, key+different body → 422
+#   §7  Metrics (ADR-0007) — Prometheus scrape emits the custom meters
+#
+# Behaviors NOT demonstrated via HTTP (see ADRs / working doc):
+#   - ADR-0012 bank-side idempotency cache (only observable via direct simulator
+#     probe, since the merchant-side filter short-circuits before the bank)
+#   - ADR-0013 outbox / reconciler (background hosted service; see ADR-0013)
+#   - Idempotency-Key concurrent duplicate → 409 (would need parallel requests)
+#   - Cross-merchant GET → 404 (only one merchant seeded; non-existent and
+#     cross-merchant share the same response shape — the test is the same one)
 
 @host = http://localhost:5067
 @demoClientId = demo-merchant
 @demoClientSecret = demo-secret
 
 ###############################################################################
-# 1. Auth: mint a bearer token from /api/auth/token
-#    Exercises the full Mongo → CredentialCache → BCrypt → JWT issuance chain.
+# §1 Auth (ADR-0010) — Mongo → CredentialCache → BCrypt → JWT issuance
 ###############################################################################
 
-# @name token
-# Send this first; subsequent requests reference it as {{token.response.body.accessToken}}.
+# @name token — send this first; subsequent requests reference its access_token.
 POST {{host}}/api/auth/token
 Content-Type: application/json
 
@@ -32,7 +52,8 @@ Content-Type: application/json
 }
 
 ###
-# Wrong secret → 401 (uniform — no existence leak between unknown client and wrong secret).
+# Wrong secret → 401 (uniform with unknown clientId — no existence leak between
+# "wrong password" and "no such client").
 POST {{host}}/api/auth/token
 Content-Type: application/json
 
@@ -42,7 +63,7 @@ Content-Type: application/json
 }
 
 ###
-# Blank credentials → 400.
+# Blank credentials → 400 (validated by FluentValidation before the credential lookup).
 POST {{host}}/api/auth/token
 Content-Type: application/json
 
@@ -52,11 +73,34 @@ Content-Type: application/json
 }
 
 ###############################################################################
-# 2. POST /api/payments — happy path (Authorized / Declined) and failure paths (503 / 400)
+# §2 Auth gating (ADR-0010) — every payments endpoint requires a valid bearer
 ###############################################################################
 
-# @name authorizedPayment
-# Card ends in 1 → Authorized. 201 with a Location header pointing at the GET route.
+# No Authorization header → 401.
+POST {{host}}/api/payments
+Content-Type: application/json
+
+{
+  "cardNumber": "2222405343248871",
+  "expiryMonth": 12,
+  "expiryYear": 2030,
+  "currency": "GBP",
+  "amount": 100,
+  "cvv": "123"
+}
+
+###
+# Malformed bearer token → 401.
+GET {{host}}/api/payments/00000000-0000-0000-0000-000000000000
+Authorization: Bearer not-a-real-jwt
+
+###############################################################################
+# §3 Payment happy paths (ADR-0001)
+###############################################################################
+
+# @name authorized
+# Card ends in 1 → bank says authorized=true. 201 Created with a Location header
+# pointing at the GET route for the new Payment. id is the per-payment Guid.
 POST {{host}}/api/payments
 Authorization: Bearer {{token.response.body.accessToken}}
 Content-Type: application/json
@@ -71,8 +115,10 @@ Content-Type: application/json
 }
 
 ###
-# @name declinedPayment
-# Card ends in 2 → Declined. The bank adjudicated; the gateway still persists and returns 201.
+# @name declined
+# Card ends in 2 → bank says authorized=false. 201 Created — the bank adjudicated
+# (declined is a definitive answer), so the gateway persists and returns 201 with
+# status=Declined. 503 (transient) is reserved for "we don't know".
 POST {{host}}/api/payments
 Authorization: Bearer {{token.response.body.accessToken}}
 Content-Type: application/json
@@ -86,10 +132,11 @@ Content-Type: application/json
   "cvv": "123"
 }
 
-###
-# @name bankUnavailablePayment
-# Card ends in 0 → 503 (bank-unavailable). Nothing persisted; merchant may retry with a
-# different Idempotency-Key once the bank is back.
+###############################################################################
+# §4 Payment failure paths
+###############################################################################
+
+# Bank unavailable (card ends in 0) → 503. Nothing persisted; merchant can retry.
 POST {{host}}/api/payments
 Authorization: Bearer {{token.response.body.accessToken}}
 Content-Type: application/json
@@ -104,8 +151,8 @@ Content-Type: application/json
 }
 
 ###
-# @name validationRejected
-# Card number too short, expiry in the past → 400. Bank is not called.
+# Validation rejected — card number too short AND expiry in the past → 400.
+# FluentValidation runs before the bank is called, so no bank traffic on this path.
 POST {{host}}/api/payments
 Authorization: Bearer {{token.response.body.accessToken}}
 Content-Type: application/json
@@ -119,28 +166,64 @@ Content-Type: application/json
   "cvv": "123"
 }
 
+###
+# Currency outside the configured allow-list (only GBP/USD/EUR are seeded in
+# appsettings.json) → 400. The allow-list is read from config; the validator
+# rejects anything not in it.
+POST {{host}}/api/payments
+Authorization: Bearer {{token.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "cardNumber": "2222405343248871",
+  "expiryMonth": 12,
+  "expiryYear": 2030,
+  "currency": "XYZ",
+  "amount": 100,
+  "cvv": "123"
+}
+
+###
+# Amount = 0 → 400 (ADR-0002 — amount must be a positive integer in the minor
+# currency unit, never zero or negative).
+POST {{host}}/api/payments
+Authorization: Bearer {{token.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "cardNumber": "2222405343248871",
+  "expiryMonth": 12,
+  "expiryYear": 2030,
+  "currency": "GBP",
+  "amount": 0,
+  "cvv": "123"
+}
+
 ###############################################################################
-# 3. GET /api/payments/{id} — retrieve a payment
-#    Uses the id captured from the Authorized POST above.
+# §5 GET /api/payments/{id} — owner scoping (ADR-0010)
 ###############################################################################
 
-# @name getAuthorizedPayment
-GET {{host}}/api/payments/{{authorizedPayment.response.body.id}}
+# Own payment (id captured from §3 authorized) → 200 with the same body.
+GET {{host}}/api/payments/{{authorized.response.body.id}}
 Authorization: Bearer {{token.response.body.accessToken}}
 
 ###
-# GET on a non-existent id → 404.
+# Non-existent id → 404. Same shape as the cross-merchant response (which is also
+# 404, by design — owners must not be able to distinguish "doesn't exist" from
+# "exists but isn't mine").
 GET {{host}}/api/payments/00000000-0000-0000-0000-000000000000
 Authorization: Bearer {{token.response.body.accessToken}}
 
 ###############################################################################
-# 4. Idempotency-Key (ADR-0003) — opt-in safe retries
-#    The merchant picks one UUID per logical purchase attempt; replays with the same key + same
-#    body return the cached response without re-calling the bank (the safety property).
+# §6 Idempotency-Key (ADR-0003) — opt-in safe retries
 ###############################################################################
+#
+# Send the three requests separately. The first caches the response under the key;
+# the second replays the cached body (bank NOT called a second time — the safety
+# property); the third proves the key was bound to a specific payload.
 
-# @name idempotentFirst
-# First POST with this Idempotency-Key → 201, response cached.
+# @name idemFirst
+# First POST under key K → 201 Created. Response body (incl. id) is cached under K.
 POST {{host}}/api/payments
 Authorization: Bearer {{token.response.body.accessToken}}
 Content-Type: application/json
@@ -156,9 +239,10 @@ Idempotency-Key: 11111111-1111-1111-1111-111111111111
 }
 
 ###
-# @name idempotentReplay
-# Same key + same body → replayed from the cache. The bank is NOT called again. The id
-# matches the response from `idempotentFirst`.
+# @name idemReplay
+# Same key + same body → 201 replayed from cache. id matches {{idemFirst.response.body.id}}.
+# The bank is NOT called a second time (proven indirectly: this returns the cached
+# id, not a fresh one — a re-call would generate a new Guid).
 POST {{host}}/api/payments
 Authorization: Bearer {{token.response.body.accessToken}}
 Content-Type: application/json
@@ -174,9 +258,11 @@ Idempotency-Key: 11111111-1111-1111-1111-111111111111
 }
 
 ###
-# @name idempotentHashMismatch
-# Same key + different body (amount changed) → 422. The key was bound to a specific payload;
-# reusing it with a different payload is a misuse the gateway rejects explicitly.
+# @name idemHashMismatch
+# Same key + different body (amount changed 100 → 999) → 422. The key was bound
+# to a specific payload hash at first use; reusing it with a different payload is
+# an explicit misuse the gateway rejects (rather than silently returning the wrong
+# payment's result).
 POST {{host}}/api/payments
 Authorization: Bearer {{token.response.body.accessToken}}
 Content-Type: application/json
@@ -192,23 +278,13 @@ Idempotency-Key: 11111111-1111-1111-1111-111111111111
 }
 
 ###############################################################################
-# 5. Auth-gating — every payments request without a valid bearer token → 401
+# §7 Metrics (ADR-0007) — Prometheus scrape endpoint
 ###############################################################################
+#
+# Unauthenticated, intended for scraping from a trusted network. Emits the four custom
+# meters defined in ADR-0007 — search the response for "payments_processed_count",
+# "payments_bank_call_duration", "payments_idempotency_replay_count",
+# "payments_rejected_reason_count". Counts increment after the relevant §3 / §6
+# requests above; grep the response to confirm the decorated handler fired.
 
-# @name noToken
-POST {{host}}/api/payments
-Content-Type: application/json
-
-{
-  "cardNumber": "2222405343248871",
-  "expiryMonth": 12,
-  "expiryYear": 2030,
-  "currency": "GBP",
-  "amount": 100,
-  "cvv": "123"
-}
-
-###
-# @name malformedBearer
-GET {{host}}/api/payments/{{authorizedPayment.response.body.id}}
-Authorization: Bearer not-a-real-jwt
+GET {{host}}/metrics
