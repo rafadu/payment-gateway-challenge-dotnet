@@ -45,7 +45,7 @@ This ADR is now built (previously "documented, not built"). Implementation notes
 
 - `PaymentMetrics` (a singleton over an `IMeterFactory`-created `Meter` named
   `PaymentGateway.Payments`) owns the four instruments. Call sites:
-  `payments.processed.count` from `PaymentsService` (Authorized/Declined) and `PaymentsController`
+  `payments.processed.count` from `ProcessPaymentHandler` (Authorized/Declined) and `PaymentsController`
   (Rejected); `payments.bank.call.duration` from `AcquiringBankClient` (timed around the HTTP call,
   with `outcome` = success/timeout/error/**invalidrequest** — a genuine caller cancellation is
   deliberately not recorded); `payments.idempotency.replay.count` from `IdempotencyResourceFilter`

@@ -139,3 +139,60 @@ When a merchant reports "my payment is missing", today we have:
 - Does the bank simulator support any kind of status lookup / reference query? If yes, §3.2 closes cleanly via reconciliation. If no, the only defence is the outbox pattern with manual ops review.
 - Is `IMemoryCache` an acceptable backing for the idempotency-key store in this codebase, or should it move to Mongo (consistent with §3.4's hardening) before any other change?
 - For §3.3, is Polly already in the dependency graph? (Check `Directory.Packages.props` / `*.csproj`.)
+
+## 7. Update — §2 implemented (2026-09-28)
+
+§2 (extract handler + pipeline) is now in place on `main` (uncommitted, awaiting the user's
+check-in commit). The shape landed:
+
+- **`IPaymentsService` → `IPaymentsHandler`** (port renamed; controller still depends on the
+  abstraction only — architecture test verifies).
+- **`PaymentsService` → `ProcessPaymentHandler`** (the use-case orchestrator, now narrowed to:
+  build bank request → call bank → `Payment.FromBankOutcome` → persist). No metric, no audit
+  side-channel — those moved out.
+- **`Payment.FromBankOutcome(merchantId, request, bankResponse)`** factory on the domain
+  (`src/PaymentGateway.Api/Models/Payment.cs`). 7 unit tests under
+  `test/.../Domain/PaymentFactoryTests.cs`, no I/O, no DI.
+- **`BankPaymentRequest.FromMerchantRequest(request)`** factory for the bank wire-format
+  conversion (`src/PaymentGateway.Api/Models/Bank/BankPaymentRequest.cs`). 2 unit tests under
+  `test/.../Domain/BankPaymentRequestFactoryTests.cs`, including the zero-pad / year-not-truncated
+  formatting theory.
+- **Decorator chain composed in DI** (`Configuration/PaymentsHandlerServiceCollectionExtensions.cs`,
+  called from `Program.cs` as `AddPaymentsHandler()`):
+  `AuditOutcomeDecorator → MetricsDecorator → ProcessPaymentHandler` (outer to inner). Each link
+  is registered as itself so a partial chain is testable without the full graph. Lifetime is
+  `Scoped` (preserves the ADR-0001 / `ServiceLifetimeTests` rationale that captured
+  `IAcquiringBankClient` must not be pinned for the process).
+- **`MetricsDecorator`** records `payments.processed.count` on success; bank failure propagates
+  untouched and no metric is recorded. 5 unit tests in `MetricsDecoratorTests`.
+- **`AuditOutcomeDecorator`** stamps `HttpContext.Items[AuditConventions.OutcomeItemKey]` with
+  the adjudicated `PaymentStatus` name on success; skips on bank failure; skips if no active
+  `HttpContext`. 5 unit tests in `AuditOutcomeDecoratorTests`.
+- **`PaymentsController`** now takes `IPaymentsHandler` (no more `IPaymentsService`); the
+  `HttpContext.Items[...]` audit side-channel is gone from the controller (moved into the
+  decorator). Validation, `RecordRejection`, exception→status-code mapping, and the
+  `CreatedAtAction` response shape stay in the controller (per the user's design choice:
+  validation stays where the 400 response shape lives).
+
+**Test status after §2**: 215 passing, 0 failing, 7 skipped integration. Architecture tests: 24
+passing. Three pre-existing analyzer warnings (CS8619 in `PaymentValidationServiceCollectionExtensionsTests.cs`
++ two CS4014 in `ProcessPaymentHandlerTests.cs`) are unchanged from baseline — none introduced by
+this refactor.
+
+**Code review**: `docs/reviews/code-review-2026-09-28.md`. 0 blockers, 1 suggestion (R-001:
+drop abstraction→implementation crefs in `IPaymentsHandler.cs` — applied), 4 nits applied
+(doc-crefs in decorators normalized to prose; `using` directives added to the three new
+`Services` files; stale historical doc references to the old names swept in
+`design.md`/ADR-0006/ADR-0007/ADR-0008/`implementation-plan.md`/`production-architecture.md`).
+
+**What §3 looks like now**: the inner `ProcessPaymentHandler` is intentionally narrow
+(4 lines of body), so §3.2 (outbox/pending), §3.3 (circuit breaker), §3.4 (Mongo retry) all
+slot in as additional decorators around it without rewriting it. Each becomes one testable
+class — the shape §2 was meant to enable. The recommended order in §5 stands.
+
+**Open questions carried forward from §6** (unresolved, still relevant for §3):
+- Is a `Pending` `PaymentStatus` acceptable? §3.2.
+- Does the bank simulator support a status-lookup / reference query? §3.2.
+- Is `IMemoryCache` an acceptable idempotency-key backing? §3.4.
+- Is Polly already in the dependency graph? §3.3. (Spot-check: it's NOT in `PaymentGateway.Api.csproj`
+  or the test csproj at the time of this writing — would need to be added.)

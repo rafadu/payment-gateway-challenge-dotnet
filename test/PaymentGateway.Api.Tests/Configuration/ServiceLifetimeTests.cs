@@ -10,13 +10,15 @@ namespace PaymentGateway.Api.Tests.Configuration;
 public class ServiceLifetimeTests
 {
     /// <summary>
-    /// PaymentsService must NOT be a singleton: it captures the typed <c>HttpClient</c>
-    /// (IAcquiringBankClient), and a singleton would pin one HttpClient for the whole process,
-    /// defeating IHttpClientFactory's handler rotation (stale DNS / ADR-0001's socket rationale).
-    /// Scoped = one instance per request scope, a fresh typed client each time.
+    /// The handler chain must NOT be a singleton: the core
+    /// (<see cref="PaymentGateway.Api.Services.ProcessPaymentHandler"/>) captures the typed
+    /// <c>HttpClient</c> (<see cref="PaymentGateway.Api.Abstractions.IAcquiringBankClient"/>), and a
+    /// singleton would pin one HttpClient for the whole process, defeating IHttpClientFactory's
+    /// handler rotation (stale DNS / ADR-0001's socket rationale). Scoped = one chain instance
+    /// per request scope, a fresh typed client each time.
     /// </summary>
     [Fact]
-    public void PaymentsService_is_scoped_not_singleton()
+    public void PaymentsHandler_chain_is_scoped_not_singleton()
     {
         using var factory = new WebApplicationFactory<Program>();
         var root = factory.Services;
@@ -24,9 +26,9 @@ public class ServiceLifetimeTests
         using var scope1 = root.CreateScope();
         using var scope2 = root.CreateScope();
 
-        var first = scope1.ServiceProvider.GetRequiredService<IPaymentsService>();
-        var againInScope1 = scope1.ServiceProvider.GetRequiredService<IPaymentsService>();
-        var inScope2 = scope2.ServiceProvider.GetRequiredService<IPaymentsService>();
+        var first = scope1.ServiceProvider.GetRequiredService<IPaymentsHandler>();
+        var againInScope1 = scope1.ServiceProvider.GetRequiredService<IPaymentsHandler>();
+        var inScope2 = scope2.ServiceProvider.GetRequiredService<IPaymentsHandler>();
 
         // Same instance within a scope, different instance across scopes → scoped (not singleton).
         againInScope1.Should().BeSameAs(first);

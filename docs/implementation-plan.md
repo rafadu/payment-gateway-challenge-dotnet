@@ -66,7 +66,7 @@ informal ports within the single existing project, not as physically separated m
   non-2xx/timeout. No docker needed — real wire-contract conformance is proven later, in stage 10.
 
 **4. Payments service orchestration**
-- `IPaymentsService`: validated request → bank DTO → `IAcquiringBankClient` → map result →
+- `IPaymentsHandler`: validated request → bank DTO → `IAcquiringBankClient` → map result →
   persist via `IPaymentsRepository` (Authorized/Declined only).
 - **Done when**: unit tests with mocked bank client + repository cover Authorized (persisted),
   Declined (persisted), bank-unavailable (exception propagates, nothing persisted).

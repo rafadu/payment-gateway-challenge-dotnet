@@ -1,3 +1,6 @@
+using PaymentGateway.Api.Models.Bank;
+using PaymentGateway.Api.Models.Requests;
+
 namespace PaymentGateway.Api.Models;
 
 /// <summary>
@@ -31,4 +34,26 @@ public class Payment
     public string Currency { get; init; } = string.Empty;
 
     public int Amount { get; init; }
+
+    /// <summary>
+    /// Builds a <see cref="Payment"/> from a merchant-validated <paramref name="request"/> and the
+    /// bank's adjudication. The factory generates a fresh id, keeps only the last four digits of
+    /// the card number, and stamps the payment with the caller's <paramref name="merchantId"/>.
+    /// The <paramref name="request"/> is assumed already validated: <c>CardNumber</c>/<c>Currency</c>/
+    /// <c>Cvv</c> are non-null and the card number is at least four digits long.
+    /// </summary>
+    public static Payment FromBankOutcome(
+        string merchantId,
+        PostPaymentRequest request,
+        BankPaymentResponse bankResponse) => new()
+        {
+            Id = Guid.NewGuid(),
+            MerchantId = merchantId,
+            Status = bankResponse.Authorized ? PaymentStatus.Authorized : PaymentStatus.Declined,
+            CardNumberLastFour = request.CardNumber![^4..],
+            ExpiryMonth = request.ExpiryMonth,
+            ExpiryYear = request.ExpiryYear,
+            Currency = request.Currency!,
+            Amount = request.Amount
+        };
 }

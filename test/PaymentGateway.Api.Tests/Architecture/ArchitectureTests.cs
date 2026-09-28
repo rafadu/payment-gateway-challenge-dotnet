@@ -40,7 +40,7 @@ public class ArchitectureTests
     private const string Filters = Root + ".Filters";
     private const string Configuration = Root + ".Configuration";
 
-    private static readonly Assembly Api = typeof(IPaymentsService).Assembly;
+    private static readonly Assembly Api = typeof(IPaymentsHandler).Assembly;
 
     private static void Passes(TestResult result)
     {

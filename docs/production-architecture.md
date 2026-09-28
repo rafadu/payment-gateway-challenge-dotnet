@@ -36,7 +36,7 @@ A request's path in this fuller picture:
 Merchant
   │  Idempotency-Key, API key
   ▼
-PaymentsController  ──► IPaymentsService ──► AcquirerRouter ──► IAcquiringBank adapter
+PaymentsController  ──► IPaymentsHandler ──► AcquirerRouter ──► IAcquiringBank adapter
       │                        │                                  (Mountebank today,
       │                        └──► IPaymentsRepository            more later — ADR-0006)
       │

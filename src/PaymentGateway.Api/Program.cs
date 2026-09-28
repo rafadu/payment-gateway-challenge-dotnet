@@ -24,7 +24,7 @@ if (builder.Configuration.GetValue<bool>("Swagger:Enabled", true))
 builder.Services.AddObservability();
 
 builder.Services.AddSingleton<IPaymentsRepository, MongoPaymentsRepository>();
-builder.Services.AddScoped<IPaymentsService, PaymentsService>();
+builder.Services.AddPaymentsHandler();
 
 // In-memory idempotency-key store (ADR-0003). Singleton — it owns the dictionary of claims, no
 // per-request state.

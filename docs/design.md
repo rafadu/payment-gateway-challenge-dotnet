@@ -19,7 +19,7 @@ PaymentsController                          [requires Authorization: Bearer <jwt
    │  POST /api/payments  → 201 / 400 / 503
    │  GET  /api/payments/{id} → 200 / 404
    ▼
-IPaymentsService (orchestration)
+IPaymentsHandler (orchestration)
    │  maps request → bank request, calls the bank, maps the result,
    │  persists only Authorized/Declined outcomes, tagged with the caller's MerchantId
    ├──────────────► IAcquiringBankClient (typed HttpClient, bounded timeout)
@@ -119,7 +119,7 @@ not close this deeper gap.
   `BaseAddress` and bounded `Timeout` from configuration (`BankSimulator:BaseUrl`,
   `BankSimulator:TimeoutSeconds`) — avoids the socket-exhaustion pitfall of constructing
   `HttpClient` per call, and gives the timeout behavior decided in ADR-0001. Its consumer
-  `PaymentsService` is registered **scoped**, not singleton: capturing a typed client in a
+  `ProcessPaymentHandler` is registered **scoped**, not singleton: capturing a typed client in a
   singleton would pin one `HttpClient` for the process lifetime and defeat `IHttpClientFactory`'s
   handler rotation (stale DNS) — the very thing the factory exists to prevent. A `ServiceLifetimeTests`
   regression test locks this in.
@@ -177,7 +177,7 @@ hardcoded, so the "no more than 3 currency codes" constraint and the resiliency 
 
 ## Testing strategy
 
-- **Unit tests** (no I/O): validator rules, `PaymentsService` orchestration logic with a mocked
+- **Unit tests** (no I/O): validator rules, `ProcessPaymentHandler` orchestration logic with a mocked
   `IAcquiringBankClient` and `IPaymentsRepository`, idempotency-store/filter behavior,
   `ICredentialCache` read-through/TTL behavior with a mocked Mongo dependency, token-issuance
   logic with a mocked cache.

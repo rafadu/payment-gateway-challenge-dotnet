@@ -9,7 +9,13 @@ namespace PaymentGateway.Api.Abstractions;
 /// asks the acquiring bank to adjudicate it, and persists the outcome. Only bank-adjudicated
 /// outcomes (Authorized / Declined) are ever created or stored.
 /// </summary>
-public interface IPaymentsService
+/// <remarks>
+/// Cross-cutting concerns — the <c>payments.processed.count</c> metric and the audit-outcome
+/// side-channel — are composed onto this interface as decorators (one for the metric, one for the
+/// audit-outcome key). The controller depends only on this abstraction; the concrete handler is
+/// the inner-most link of the DI-composed chain (see <c>Program.cs</c>).
+/// </remarks>
+public interface IPaymentsHandler
 {
     /// <summary>
     /// Processes <paramref name="request"/> (assumed already validated) against the acquiring bank

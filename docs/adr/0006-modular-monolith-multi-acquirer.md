@@ -44,7 +44,7 @@ These boundaries are enforced by architecture tests (ADR-0008), not just code re
   deliberate trade-off made because the domain (a payment *gateway*, not a single-bank connector)
   implies multi-acquirer support is a "when," not an "if."
 - Adding a second acquirer becomes additive: a new module implementing the existing port, plus a
-  routing rule — no change to `PaymentsService`, validation, persistence, or the audit pipeline.
+  routing rule — no change to `ProcessPaymentHandler`, validation, persistence, or the audit pipeline.
 - A modular monolith gets the boundary/ownership benefits of separation without the operational
   cost of a distributed system. It can be split into real microservices later if a specific
   module develops a genuine independent-scaling or independent-team need — this decision doesn't

@@ -22,18 +22,18 @@ namespace PaymentGateway.Api.Controllers;
 [Authorize]
 public class PaymentsController : ControllerBase
 {
-    private readonly IPaymentsService _paymentsService;
+    private readonly IPaymentsHandler _paymentsHandler;
     private readonly IPaymentsRepository _paymentsRepository;
     private readonly IValidator<PostPaymentRequest> _validator;
     private readonly PaymentMetrics _metrics;
 
     public PaymentsController(
-        IPaymentsService paymentsService,
+        IPaymentsHandler paymentsHandler,
         IPaymentsRepository paymentsRepository,
         IValidator<PostPaymentRequest> validator,
         PaymentMetrics metrics)
     {
-        _paymentsService = paymentsService;
+        _paymentsHandler = paymentsHandler;
         _paymentsRepository = paymentsRepository;
         _validator = validator;
         _metrics = metrics;
@@ -68,9 +68,7 @@ public class PaymentsController : ControllerBase
 
         try
         {
-            var payment = await _paymentsService.ProcessPaymentAsync(request, merchantId, cancellationToken);
-            // The audit filter reads this to distinguish Authorized vs Declined (both are 201s).
-            HttpContext.Items[AuditConventions.OutcomeItemKey] = payment.Status.ToString();
+            var payment = await _paymentsHandler.ProcessPaymentAsync(request, merchantId, cancellationToken);
             return CreatedAtAction(nameof(GetPayment), new { id = payment.Id }, ToResponse(payment));
         }
         catch (BankUnavailableException)

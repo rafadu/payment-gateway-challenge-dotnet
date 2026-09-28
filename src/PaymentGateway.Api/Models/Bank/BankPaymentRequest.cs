@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 
+using PaymentGateway.Api.Models.Requests;
+
 namespace PaymentGateway.Api.Models.Bank;
 
 /// <summary>
@@ -23,4 +25,19 @@ public sealed class BankPaymentRequest
 
     [JsonPropertyName("cvv")]
     public string Cvv { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Builds the bank's wire-format request from a merchant-validated
+    /// <paramref name="request"/>. Sends the full PAN and CVV (the bank needs them); the gateway
+    /// keeps only the last four. <paramref name="request"/> is assumed already validated: every
+    /// string field is non-null.
+    /// </summary>
+    public static BankPaymentRequest FromMerchantRequest(PostPaymentRequest request) => new()
+    {
+        CardNumber = request.CardNumber!,
+        ExpiryDate = $"{request.ExpiryMonth:D2}/{request.ExpiryYear:D4}",
+        Currency = request.Currency!,
+        Amount = request.Amount,
+        Cvv = request.Cvv!
+    };
 }

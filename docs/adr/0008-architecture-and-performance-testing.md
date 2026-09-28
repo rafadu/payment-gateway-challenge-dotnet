@@ -17,7 +17,7 @@ pass, so a violating PR fails CI like any other test failure:
 - Dependency direction between modules (`Domain`/`Application` never depend on `Infrastructure`
   or `Api`; acquirer modules never depend on each other — ADR-0006).
 - Controllers may not reference `HttpClient`/`IAcquiringBankClient` directly — only
-  `IPaymentsService`.
+  `IPaymentsHandler`.
 - No public property named like a raw card field (`CardNumber`, `Cvv`) exists outside the single
   designated request DTO — a payments-specific safety net that turns "we agreed never to persist
   the PAN" into something CI checks on every build.
