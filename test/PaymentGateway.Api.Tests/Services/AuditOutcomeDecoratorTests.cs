@@ -44,7 +44,7 @@ public class AuditOutcomeDecoratorTests
     [Fact]
     public async Task Stamps_the_audit_outcome_key_with_Authorized_when_the_payment_is_authorized()
     {
-        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new Payment { Status = PaymentStatus.Authorized });
 
         await _decorator.ProcessPaymentAsync(ARequest(), "merchant-42");
@@ -55,7 +55,7 @@ public class AuditOutcomeDecoratorTests
     [Fact]
     public async Task Stamps_the_audit_outcome_key_with_Declined_when_the_payment_is_declined()
     {
-        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new Payment { Status = PaymentStatus.Declined });
 
         await _decorator.ProcessPaymentAsync(ARequest(), "merchant-42");
@@ -66,7 +66,7 @@ public class AuditOutcomeDecoratorTests
     [Fact]
     public async Task Does_not_stamp_the_outcome_key_when_the_inner_handler_throws()
     {
-        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new BankUnavailableException("bank down"));
 
         await _decorator.Invoking(d => d.ProcessPaymentAsync(ARequest(), "merchant-42"))
@@ -84,7 +84,7 @@ public class AuditOutcomeDecoratorTests
             MerchantId = "merchant-42",
             Status = PaymentStatus.Authorized
         };
-        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(payment);
 
         var result = await _decorator.ProcessPaymentAsync(ARequest(), "merchant-42");
@@ -99,7 +99,7 @@ public class AuditOutcomeDecoratorTests
         // stamp. The audit middleware will derive an outcome from the status code instead — losing
         // some fidelity but never crashing the call.
         _httpContextAccessor.HttpContext.Returns((HttpContext?)null);
-        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new Payment { Status = PaymentStatus.Authorized });
 
         await _decorator.Invoking(d => d.ProcessPaymentAsync(ARequest(), "merchant-42"))

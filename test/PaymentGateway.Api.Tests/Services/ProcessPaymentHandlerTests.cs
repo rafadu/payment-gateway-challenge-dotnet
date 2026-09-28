@@ -169,4 +169,34 @@ public class ProcessPaymentHandlerTests
         new BankUnavailableException("bank down"),
         new InvalidBankRequestException("we sent a bad request")
     ];
+
+    // --- Bank idempotency key forwarding (ADR-0012) -------------------------
+
+    [Fact]
+    public async Task Forwards_the_bank_idempotency_key_to_the_bank_client_when_provided()
+    {
+        string? sentKey = "untouched";
+        BankResponds(authorized: true);
+        _bank.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Do<string?>(k => sentKey = k), Arg.Any<CancellationToken>())
+            .Returns(new BankPaymentResponse { Authorized = true });
+
+        await _handler.ProcessPaymentAsync(ARequest(), TestMerchantId, bankIdempotencyKey: "merchant-attempt-1");
+
+        sentKey.Should().Be("merchant-attempt-1");
+    }
+
+    [Fact]
+    public async Task Forwards_a_null_bank_idempotency_key_when_none_is_provided()
+    {
+        // Default param: call sites that don't opt in (no merchant-side Idempotency-Key header) must
+        // still get null forwarded — not an empty string, not the merchant's other ID.
+        string? sentKey = "untouched";
+        BankResponds(authorized: true);
+        _bank.ProcessPaymentAsync(Arg.Any<BankPaymentRequest>(), Arg.Do<string?>(k => sentKey = k), Arg.Any<CancellationToken>())
+            .Returns(new BankPaymentResponse { Authorized = true });
+
+        await _handler.ProcessPaymentAsync(ARequest(), TestMerchantId);
+
+        sentKey.Should().BeNull();
+    }
 }

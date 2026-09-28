@@ -68,7 +68,10 @@ public class PaymentsController : ControllerBase
 
         try
         {
-            var payment = await _paymentsHandler.ProcessPaymentAsync(request, merchantId, cancellationToken);
+            // Slice E2 placeholder: pass null for the bank idempotency key. E3 will read the
+            // Idempotency-Key request header here and forward it as bankKey (ADR-0012).
+            var payment = await _paymentsHandler.ProcessPaymentAsync(
+                request, merchantId, bankIdempotencyKey: null, cancellationToken);
             return CreatedAtAction(nameof(GetPayment), new { id = payment.Id }, ToResponse(payment));
         }
         catch (BankUnavailableException)

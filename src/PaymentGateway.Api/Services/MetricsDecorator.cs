@@ -26,9 +26,10 @@ public sealed class MetricsDecorator : IPaymentsHandler
     public async Task<Payment> ProcessPaymentAsync(
         PostPaymentRequest request,
         string merchantId,
+        string? bankIdempotencyKey = null,
         CancellationToken cancellationToken = default)
     {
-        var payment = await _inner.ProcessPaymentAsync(request, merchantId, cancellationToken);
+        var payment = await _inner.ProcessPaymentAsync(request, merchantId, bankIdempotencyKey, cancellationToken);
         _metrics.RecordProcessed(payment.Status, payment.Currency);
         return payment;
     }

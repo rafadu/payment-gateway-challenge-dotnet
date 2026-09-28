@@ -26,12 +26,11 @@ public sealed class ProcessPaymentHandler : IPaymentsHandler
     public async Task<Payment> ProcessPaymentAsync(
         PostPaymentRequest request,
         string merchantId,
+        string? bankIdempotencyKey = null,
         CancellationToken cancellationToken = default)
     {
         var bankRequest = BankPaymentRequest.FromMerchantRequest(request);
-        // Slice E1 placeholder: forward null for the idempotency key. E2 will thread the key
-        // through IPaymentsHandler so the merchant's header reaches the bank (ADR-0012).
-        var bankResponse = await _bankClient.ProcessPaymentAsync(bankRequest, null, cancellationToken);
+        var bankResponse = await _bankClient.ProcessPaymentAsync(bankRequest, bankIdempotencyKey, cancellationToken);
         var payment = Payment.FromBankOutcome(merchantId, request, bankResponse);
         await _repository.AddAsync(payment, cancellationToken);
         return payment;

@@ -59,7 +59,7 @@ public class MetricsDecoratorTests
             Currency = "GBP",
             Amount = 100
         };
-        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(payment);
         using var collector = new MetricCollector<long>(_meterFactory, PaymentMetrics.MeterName, "payments.processed.count");
 
@@ -75,7 +75,7 @@ public class MetricsDecoratorTests
     [Fact]
     public async Task Does_not_record_a_processed_payment_when_the_inner_handler_throws()
     {
-        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new BankUnavailableException("bank down"));
         using var collector = new MetricCollector<long>(_meterFactory, PaymentMetrics.MeterName, "payments.processed.count");
 
@@ -95,7 +95,7 @@ public class MetricsDecoratorTests
             Status = PaymentStatus.Authorized,
             Currency = "GBP"
         };
-        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(payment);
 
         var result = await _decorator.ProcessPaymentAsync(ARequest(), "merchant-42");
@@ -107,7 +107,7 @@ public class MetricsDecoratorTests
     public async Task Propagates_the_inner_handlers_exception_unchanged()
     {
         var failure = new InvalidBankRequestException("we sent a bad request");
-        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _inner.ProcessPaymentAsync(Arg.Any<PostPaymentRequest>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(failure);
 
         var thrown = await _decorator.Invoking(d => d.ProcessPaymentAsync(ARequest(), "merchant-42"))
